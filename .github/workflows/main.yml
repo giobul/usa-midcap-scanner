@@ -1,8 +1,8 @@
 name: Trading Bot Automatizzato
 on:
   schedule:
-    - cron: '35 14 * * 1-5' # Ogni lun-ven alle 15:35 italiane
-  workflow_dispatch: # Permette di lanciarlo a mano per test
+    - cron: '35 14 * * 1-5'
+  workflow_dispatch:
 
 jobs:
   run-bot:
@@ -10,12 +10,16 @@ jobs:
     steps:
       - name: Scarica codice
         uses: actions/checkout@v3
+
       - name: Installa Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
+
       - name: Installa librerie
-        run: pip install -r requirements.txt
+        run: |
+          pip install yfinance pandas_ta requests google-generativeai
+
       - name: Esegui Scanner
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
