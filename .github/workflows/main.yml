@@ -14,11 +14,13 @@ jobs:
       - name: Installa Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
+          python-version: '3.10' # Versione più stabile per queste librerie
 
       - name: Installa librerie
         run: |
-          pip install yfinance pandas_ta requests google-generativeai
+          python -m pip install --upgrade pip
+          pip install yfinance pandas requests google-generativeai
+          pip install pandas_ta # Installazione separata per evitare conflitti
 
       - name: Esegui Scanner
         env:
