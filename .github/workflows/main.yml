@@ -1,0 +1,24 @@
+name: Trading Bot Automatizzato
+on:
+  schedule:
+    - cron: '35 14 * * 1-5' # Ogni lun-ven alle 15:35 italiane
+  workflow_dispatch: # Permette di lanciarlo a mano per test
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Scarica codice
+        uses: actions/checkout@v3
+      - name: Installa Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Installa librerie
+        run: pip install -r requirements.txt
+      - name: Esegui Scanner
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python scanner_pro.py
