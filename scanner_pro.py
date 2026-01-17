@@ -35,7 +35,7 @@ def run_scanner():
             avg_vol = df['Volume'].tail(20).mean()
             vol_ratio = round(last_vol/avg_vol, 1)
 
-            if vol_ratio > 1.5 and obv_trend == "Crescente":
+           if True: # TEST TEMPORANEO
                 prompt = f"Analizza {ticker} a ${last_price}. Volumi {vol_ratio}x, OBV {obv_trend}, {is_squeeze}. Verifica Option Sweeps istituzionali e breakout. Sii sintetico."
                 analisi = model.generate_content(prompt).text
                 send_msg(f"🚀 *GITHUB ALERT: {ticker}*\n💰 ${last_price:.2f} | 📊 {vol_ratio}x\n📈 OBV: {obv_trend}\n🤖 *IA:* {analisi}")
