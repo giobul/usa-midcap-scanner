@@ -11,7 +11,17 @@ genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 model = genai.GenerativeModel('gemini-1.5-flash')
 
 # Lista Mid-Cap e titoli ad alto potenziale
-TICKERS = ["NVDA", "PLTR", "MSTR", "AMD", "MARA", "COIN", "SOFI", "AFRM", "UPST", "CLSK", "TSM", "ARM"]
+# Lista completa basata sulla tua immagine (Pulita e verificata)
+TICKERS = [
+    "RUN", "ADCT", "DKNG", "APLD", "AXON", "CRWD", "ABCL", "ADBE", "AGEN", 
+    "ALLR", "AMPX", "ACHR", "ARQT", "ARWR", "ADSK", "BBAI", "BBIO", "CARS", 
+    "CSCO", "COGT", "COIN", "CRWV", "CRSP", "QBTS", "ETOR", "EXTR", "GILD", 
+    "GOGO", "INOD", "ISP", "INTZ", "IONQ", "KRMN", "KPTI", "LYFT", "MU", 
+    "MRNA", "NEGG", "NMIH", "NVDA", "OKLO", "OKTA", "ON", "OSCR", "OUST", 
+    "PLTR", "PTCT", "QUBT", "RXRX", "RGC", "RNW", "RGTI", "SPMI", "SLDP", 
+    "SOUN", "STLA", "SMCI", "SUPN", "SYM", "PATH", "VKTX", "VIR", "VOYG", 
+    "NUVL", "WSBC", "STX", "MSTR", "AMD"
+]
 
 def send_msg(text):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
