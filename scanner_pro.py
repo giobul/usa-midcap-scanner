@@ -37,7 +37,7 @@ def run_scanner():
             vol_ratio = round(last_vol/avg_vol, 1)
 
             # Trigger per il test (essendo sabato mettiamo un filtro basso o True per vedere se scrive)
-            if vol_ratio > 0.1: # Filtro bassissimo solo per il test di stasera
+            if True: # TEST FORZATO: # Filtro bassissimo solo per il test di stasera
                 prompt = f"Analizza {ticker} a ${last_price}. Volumi {vol_ratio}x rispetto alla media, OBV {obv_trend}. Sii sintetico e professionale."
                 analisi = model.generate_content(prompt).text
                 send_msg(f"🚀 *TEST GITHUB: {ticker}*\n💰 Prezzo: ${last_price:.2f}\n📊 Volumi: {vol_ratio}x\n📈 OBV: {obv_trend}\n🤖 *IA:* {analisi}")
