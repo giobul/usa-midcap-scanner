@@ -20,7 +20,7 @@ TICKERS = [
     "MRNA", "NEGG", "NMIH", "NVDA", "OKLO", "OKTA", "ON", "OSCR", "OUST", 
     "PLTR", "PTCT", "QUBT", "RXRX", "RGC", "RNW", "RGTI", "SPMI", "SLDP", 
     "SOUN", "STLA", "SMCI", "SUPN", "SYM", "PATH", "VKTX", "VIR", "VOYG", 
-    "NUVL", "WSBC", "STX", "MSTR", "AMD"
+    "NUVL", "WSBC", "STX", "MSTR", "AMD", "IBRX"
 ]
 
 def send_msg(text):
