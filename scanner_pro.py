@@ -1,31 +1,10 @@
-import subprocess
-import sys
 import os
-
-# --- SISTEMA DI AUTO-INSTALLAZIONE ---
-def install_and_import(package, import_name=None):
-    if import_name is None:
-        import_name = package
-    try:
-        __import__(import_name)
-    except ImportError:
-        print(f"Installazione forzata di {package}...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-
-# Lista delle librerie necessarie
-install_and_import('pandas')
-install_and_import('yfinance')
-install_and_import('requests')
-install_and_import('pandas-ta', 'pandas_ta')
-install_and_import('google-generativeai', 'google.generativeai')
-
-# --- IMPORTAZIONE EFFETTIVA ---
 import yfinance as yf
 import pandas as pd
 import pandas_ta as ta
 import requests
 import google.generativeai as genai
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # --- CONFIGURAZIONE ---
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -33,8 +12,9 @@ CHAT_ID = os.getenv("CHAT_ID")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # Configura Gemini
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel('gemini-1.5-flash')
 
 # Lista Mid-Cap (Esempio principali Mid-Cap e titoli caldi)
 TICKERS = [
