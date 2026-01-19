@@ -9,17 +9,19 @@ jobs:
   run-bot:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
+          cache: 'pip' # Ottimizza i tempi di caricamento
 
-      - name: Install Libraries
+      - name: Force Install Dependencies
         run: |
-          pip install yfinance requests pandas pandas-ta google-generativeai
+          python -m pip install --upgrade pip
+          pip install pandas pandas-ta yfinance requests google-generativeai
 
       - name: Execute Script
         env:
