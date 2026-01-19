@@ -1,35 +1,29 @@
-name: MidCap Daily Scanner
+name: MidCap_Scanner
 
 on:
   schedule:
-    # Esegue alle 15:00, 18:00 e 21:00 UTC (ovvero 16:00, 19:00, 22:00 in Italia)
-    # Dal lunedì al venerdì
     - cron: '0 15,18,21 * * 1-5'
-  workflow_dispatch: # Permette di avviarlo a mano con un tasto
+  workflow_dispatch:
 
 jobs:
-  run-scanner:
+  run-bot:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      - name: Install Dependencies
+      - name: Install Libraries
         run: |
-          python -m pip install --upgrade pip
           pip install yfinance requests pandas pandas-ta google-generativeai
 
-      - name: Run Stock Scanner
+      - name: Execute Script
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python scanner_pro.py
-          CHAT_ID: ${{ secrets.CHAT_ID }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python nome_del_tuo_file.py # <--- CAMBIA QUESTO con il nome del tuo file .py
