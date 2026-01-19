@@ -2,6 +2,7 @@ import os
 import yfinance as yf
 import requests
 import pandas as pd
+import pandas_ta as ta  # Nuova libreria per analisi tecnica avanzata
 import google.generativeai as genai
 
 # --- CONFIGURAZIONE ---
@@ -10,8 +11,6 @@ CHAT_ID = os.getenv("CHAT_ID")
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-# Lista Mid-Cap e titoli ad alto potenziale
-# Lista completa basata sulla tua immagine (Pulita e verificata)
 TICKERS = [
     "RUN", "ADCT", "DKNG", "APLD", "AXON", "CRWD", "ABCL", "ADBE", "AGEN", 
     "ALLR", "AMPX", "ACHR", "ARQT", "ARWR", "ADSK", "BBAI", "BBIO", "CARS", 
@@ -28,49 +27,60 @@ def send_msg(text):
     requests.post(url, json={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
 
 def run_scanner():
-    print("Inizio scansione professionale...")
+    print("🚀 Inizio scansione professionale con filtri anti-falso...")
     for ticker in TICKERS:
         try:
             stock = yf.Ticker(ticker)
-            # Scarichiamo 1 anno di dati per calcolare correttamente la media a 200 giorni
             df = stock.history(period="1y")
             if df.empty or len(df) < 200: continue
             
-            # 1. Calcolo Prezzo e Volumi
+            # --- CALCOLI TECNICI ---
+            # 1. Prezzo e SMA 200
             last_close = df['Close'].iloc[-1]
+            sma_200 = df['Close'].rolling(window=200).mean().iloc[-1]
+            
+            # 2. Volume Ratio
             last_vol = df['Volume'].iloc[-1]
             avg_vol = df['Volume'].tail(20).mean()
             vol_ratio = last_vol / avg_vol
             
-            # 2. Calcolo Media Mobile a 200 giorni (SMA 200)
-            sma_200 = df['Close'].rolling(window=200).mean().iloc[-1]
-            is_bullish = last_close > sma_200
+            # 3. RSI (Filtro Ipercomprato)
+            df['RSI'] = ta.rsi(df['Close'], length=14)
+            current_rsi = df['RSI'].iloc[-1]
             
-            # --- FILTRO DOPPIO: Volume Spike + Trend Rialzista ---
-            if vol_ratio > 1.5 and is_bullish:
-                prompt = (f"Analizza {ticker}. Prezzo (${last_close:.2f}) sopra la media 200 giorni (${sma_200:.2f}). "
-                          f"Volume anomalo: {vol_ratio:.1f}x. Identifica segnali di accumulazione istituzionale, "
-                          f"resistenze chiave e attività insolita sulle Call. Sii sintetico.")
+            # 4. ATR ed Espansione del Range (Filtro Forza Reale)
+            df['ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=14)
+            avg_atr = df['ATR'].tail(10).mean()
+            current_range = df['High'].iloc[-1] - df['Low'].iloc[-1]
+            
+            # --- LOGICA DEL FILTRO "ANTI-FALSO" ---
+            is_bullish = last_close > sma_200
+            is_volume_spike = vol_ratio > 1.5
+            is_not_overbought = current_rsi < 70 # Non compriamo se è già troppo alto
+            is_price_expansion = current_range > avg_atr # La candela deve essere "decisa"
+
+            if is_bullish and is_volume_spike and is_not_overbought and is_price_expansion:
+                
+                prompt = (f"Analisi Professionale {ticker}. Prezzo: ${last_close:.2f}. "
+                          f"Sopra SMA 200, Volume {vol_ratio:.1f}x, RSI: {current_rsi:.1f}. "
+                          f"Verifica accumulazione istituzionale e identifica breakout validati dai flussi "
+                          f"sopra le resistenze chiave. Cerca Option Sweeps insoliti.")
                 
                 analisi = model.generate_content(prompt).text
                 
-                msg = (f"🔥 *GOLDEN SIGNAL: {ticker}*\n"
-                       f"📈 Trend: *Sopra SMA 200* (Rialzista)\n"
-                       f"📊 Volume Spike: *{vol_ratio:.1f}x*\n"
-                       f"💰 Prezzo attuale: ${last_close:.2f}\n\n"
-                       f"🤖 *ANALISI IA:*\n{analisi}")
+                msg = (f"💎 *DIAMOND SIGNAL: {ticker}*\n"
+                       f"📊 Volume: *{vol_ratio:.1f}x* | RSI: *{current_rsi:.1f}*\n"
+                       f"📈 Range: *Espansione rilevata* (> ATR)\n"
+                       f"💰 Prezzo: ${last_close:.2f} (Sopra SMA 200)\n\n"
+                       f"🤖 *ANALISI IA:* \n{analisi}")
                 
                 send_msg(msg)
-                print(f"Segnale inviato per {ticker}")
+                print(f"✅ SEGNALE VALIDATO: {ticker}")
             else:
-                motivo = "Volume basso" if vol_ratio <= 1.5 else "Sotto SMA 200 (Trend debole)"
-                print(f"{ticker}: Saltato ({motivo})")
+                print(f"❌ {ticker}: Scartato (Filtri tecnici non superati)")
                 
         except Exception as e:
             print(f"Errore su {ticker}: {e}")
-
-if __name__ == "__main__":
-    run_scanner()
 
 if __name__ == "__main__":
     run_scanner()
