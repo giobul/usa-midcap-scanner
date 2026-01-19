@@ -1,5 +1,4 @@
 name: MidCap_Scanner
-
 on:
   workflow_dispatch:
   schedule:
@@ -10,18 +9,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Python Setup
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      - name: Install and Run
+      - name: Execute
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          pip install pandas yfinance requests pandas-ta google-generativeai
-          python scanner_pro.py
+        run: python scanner_pro.py
