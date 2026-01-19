@@ -107,4 +107,16 @@ def main():
     
     if found_stocks:
         for stock in found_stocks:
-            ai_
+            ai_text = get_ai_insight(stock)
+            msg = (f"🚀 *SEGNALE MID-CAP: {stock['ticker']}*\n\n"
+                   f"💰 Prezzo: ${stock['price']}\n"
+                   f"📊 RSI: {stock['rsi']}\n"
+                   f"📈 Volume: {stock['vol_increase']}x media\n\n"
+                   f"🤖 *Analisi Gemini:* \n{ai_text}")
+            send_telegram_message(msg)
+            print(f"Inviato segnale per {stock['ticker']}")
+    else:
+        print("Nessun titolo soddisfa i criteri al momento.")
+
+if __name__ == "__main__":
+    main()
