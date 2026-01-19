@@ -2,7 +2,7 @@ import os
 import yfinance as yf
 import requests
 import pandas as pd
-import pandas_ta as ta  # Nuova libreria per analisi tecnica avanzata
+import pandas_ta as ta
 import google.generativeai as genai
 
 # --- CONFIGURAZIONE ---
