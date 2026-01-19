@@ -1,86 +1,110 @@
+import subprocess
+import sys
 import os
+
+# --- SISTEMA DI AUTO-INSTALLAZIONE ---
+def install_and_import(package, import_name=None):
+    if import_name is None:
+        import_name = package
+    try:
+        __import__(import_name)
+    except ImportError:
+        print(f"Installazione forzata di {package}...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+# Lista delle librerie necessarie
+install_and_import('pandas')
+install_and_import('yfinance')
+install_and_import('requests')
+install_and_import('pandas-ta', 'pandas_ta')
+install_and_import('google-generativeai', 'google.generativeai')
+
+# --- IMPORTAZIONE EFFETTIVA ---
 import yfinance as yf
-import requests
 import pandas as pd
 import pandas_ta as ta
+import requests
 import google.generativeai as genai
+from datetime import datetime, timedelta
 
 # --- CONFIGURAZIONE ---
-TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# Configura Gemini
+genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
 
+# Lista Mid-Cap (Esempio principali Mid-Cap e titoli caldi)
 TICKERS = [
-    "RUN", "ADCT", "DKNG", "APLD", "AXON", "CRWD", "ABCL", "ADBE", "AGEN", 
-    "ALLR", "AMPX", "ACHR", "ARQT", "ARWR", "ADSK", "BBAI", "BBIO", "CARS", 
-    "CSCO", "COGT", "COIN", "CRWV", "CRSP", "QBTS", "ETOR", "EXTR", "GILD", 
-    "GOGO", "INOD", "ISP", "INTZ", "IONQ", "KRMN", "KPTI", "LYFT", "MU", 
-    "MRNA", "NEGG", "NMIH", "NVDA", "OKLO", "OKTA", "ON", "OSCR", "OUST", 
-    "PLTR", "PTCT", "QUBT", "RXRX", "RGC", "RNW", "RGTI", "SPMI", "SLDP", 
-    "SOUN", "STLA", "SMCI", "SUPN", "SYM", "PATH", "VKTX", "VIR", "VOYG", 
-    "NUVL", "WSBC", "STX", "MSTR", "AMD", "IBRX"
+    'PLTR', 'MSTR', 'RBLX', 'AFRM', 'U', 'SNOW', 'PATH', 'SHOP', 'NET', 'DDOG',
+    'ZS', 'OKTA', 'COIN', 'HOOD', 'DKNG', 'PINS', 'SNAP', 'TWLO', 'MTTR', 'AI',
+    'SOFI', 'UPST', 'LCID', 'RIVN', 'NIO', 'XPEV', 'LI', 'GME', 'AMC', 'MARA',
+    'RIOT', 'CLSK', 'MDB', 'TEAM', 'WDAY', 'NOW', 'SNPS', 'CDNS', 'ANSS', 'SPLK',
+    'CRWD', 'PANW', 'FTNT', 'NET', 'S', 'SENT', 'CELH', 'DUOL', 'MELI', 'SE'
 ]
 
-def send_msg(text):
-    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    requests.post(url, json={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
+def send_telegram_message(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
+    try:
+        requests.post(url, json=payload)
+    except Exception as e:
+        print(f"Errore Telegram: {e}")
 
-def run_scanner():
-    print("🚀 Inizio scansione professionale con filtri anti-falso...")
+def analyze_stock(ticker):
+    try:
+        df = yf.download(ticker, period="60d", interval="1d", progress=False)
+        if df.empty or len(df) < 30:
+            return None
+
+        # Calcolo Indicatori Tecnici con pandas_ta
+        df['RSI'] = ta.rsi(df['Close'], length=14)
+        df['SMA20'] = ta.sma(df['Close'], length=20)
+        df['SMA50'] = ta.sma(df['Close'], length=50)
+        
+        last_row = df.iloc[-1]
+        prev_row = df.iloc[-2]
+        
+        current_price = last_row['Close']
+        volume_ma = df['Volume'].tail(20).mean()
+        current_volume = last_row['Volume']
+        
+        # FILTRI: Prezzo > SMA20, Volume > 1.5x media, RSI non in ipercomprato estremo
+        if current_price > last_row['SMA20'] and current_volume > (volume_ma * 1.5) and last_row['RSI'] < 70:
+            return {
+                "ticker": ticker,
+                "price": round(float(current_price), 2),
+                "rsi": round(float(last_row['RSI']), 2),
+                "vol_increase": round(float(current_volume / volume_ma), 2)
+            }
+    except Exception as e:
+        print(f"Errore analisi {ticker}: {e}")
+    return None
+
+def get_ai_insight(data):
+    prompt = f"""
+    Analizza brevemente questo titolo Mid-Cap: {data['ticker']}.
+    Prezzo: {data['price']}, RSI: {data['rsi']}, Incremento Volume: {data['vol_increase']}x.
+    Identifica livelli di breakout e se c'è accumulazione istituzionale visibile dai volumi. 
+    Sii sintetico e professionale.
+    """
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+    except:
+        return "Insight AI non disponibile."
+
+def main():
+    print(f"Avvio scansione alle {datetime.now()}")
+    found_stocks = []
+    
     for ticker in TICKERS:
-        try:
-            stock = yf.Ticker(ticker)
-            df = stock.history(period="1y")
-            if df.empty or len(df) < 200: continue
-            
-            # --- CALCOLI TECNICI ---
-            # 1. Prezzo e SMA 200
-            last_close = df['Close'].iloc[-1]
-            sma_200 = df['Close'].rolling(window=200).mean().iloc[-1]
-            
-            # 2. Volume Ratio
-            last_vol = df['Volume'].iloc[-1]
-            avg_vol = df['Volume'].tail(20).mean()
-            vol_ratio = last_vol / avg_vol
-            
-            # 3. RSI (Filtro Ipercomprato)
-            df['RSI'] = ta.rsi(df['Close'], length=14)
-            current_rsi = df['RSI'].iloc[-1]
-            
-            # 4. ATR ed Espansione del Range (Filtro Forza Reale)
-            df['ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=14)
-            avg_atr = df['ATR'].tail(10).mean()
-            current_range = df['High'].iloc[-1] - df['Low'].iloc[-1]
-            
-            # --- LOGICA DEL FILTRO "ANTI-FALSO" ---
-            is_bullish = last_close > sma_200
-            is_volume_spike = vol_ratio > 1.5
-            is_not_overbought = current_rsi < 70 # Non compriamo se è già troppo alto
-            is_price_expansion = current_range > avg_atr # La candela deve essere "decisa"
-
-            if is_bullish and is_volume_spike and is_not_overbought and is_price_expansion:
-                
-                prompt = (f"Analisi Professionale {ticker}. Prezzo: ${last_close:.2f}. "
-                          f"Sopra SMA 200, Volume {vol_ratio:.1f}x, RSI: {current_rsi:.1f}. "
-                          f"Verifica accumulazione istituzionale e identifica breakout validati dai flussi "
-                          f"sopra le resistenze chiave. Cerca Option Sweeps insoliti.")
-                
-                analisi = model.generate_content(prompt).text
-                
-                msg = (f"💎 *DIAMOND SIGNAL: {ticker}*\n"
-                       f"📊 Volume: *{vol_ratio:.1f}x* | RSI: *{current_rsi:.1f}*\n"
-                       f"📈 Range: *Espansione rilevata* (> ATR)\n"
-                       f"💰 Prezzo: ${last_close:.2f} (Sopra SMA 200)\n\n"
-                       f"🤖 *ANALISI IA:* \n{analisi}")
-                
-                send_msg(msg)
-                print(f"✅ SEGNALE VALIDATO: {ticker}")
-            else:
-                print(f"❌ {ticker}: Scartato (Filtri tecnici non superati)")
-                
-        except Exception as e:
-            print(f"Errore su {ticker}: {e}")
-
-if __name__ == "__main__":
-    run_scanner()
+        result = analyze_stock(ticker)
+        if result:
+            found_stocks.append(result)
+    
+    if found_stocks:
+        for stock in found_stocks:
+            ai_
