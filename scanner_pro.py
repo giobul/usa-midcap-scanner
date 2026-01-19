@@ -11,92 +11,46 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Configura Gemini
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel('gemini-1.5-flash')
 
-# Lista Mid-Cap (Esempio principali Mid-Cap e titoli caldi)
-TICKERS = [
-    'PLTR', 'MSTR', 'RBLX', 'AFRM', 'U', 'SNOW', 'PATH', 'SHOP', 'NET', 'DDOG',
-    'ZS', 'OKTA', 'COIN', 'HOOD', 'DKNG', 'PINS', 'SNAP', 'TWLO', 'MTTR', 'AI',
-    'SOFI', 'UPST', 'LCID', 'RIVN', 'NIO', 'XPEV', 'LI', 'GME', 'AMC', 'MARA',
-    'RIOT', 'CLSK', 'MDB', 'TEAM', 'WDAY', 'NOW', 'SNPS', 'CDNS', 'ANSS', 'SPLK',
-    'CRWD', 'PANW', 'FTNT', 'NET', 'S', 'SENT', 'CELH', 'DUOL', 'MELI', 'SE'
-]
+# Lista Mid-Cap
+TICKERS = ['PLTR', 'MSTR', 'RBLX', 'AFRM', 'U', 'SNOW', 'SHOP', 'COIN', 'HOOD', 'DKNG']
 
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
-    try:
-        requests.post(url, json=payload)
-    except Exception as e:
-        print(f"Errore Telegram: {e}")
+    requests.post(url, json=payload)
 
 def analyze_stock(ticker):
     try:
         df = yf.download(ticker, period="60d", interval="1d", progress=False)
-        if df.empty or len(df) < 30:
-            return None
-
-        # Calcolo Indicatori Tecnici con pandas_ta
+        if df.empty or len(df) < 20: return None
+        
+        # Calcolo RSI
         df['RSI'] = ta.rsi(df['Close'], length=14)
+        # Calcolo SMA 20
         df['SMA20'] = ta.sma(df['Close'], length=20)
-        df['SMA50'] = ta.sma(df['Close'], length=50)
         
-        last_row = df.iloc[-1]
-        prev_row = df.iloc[-2]
+        last = df.iloc[-1]
+        vol_ma = df['Volume'].tail(20).mean()
         
-        current_price = last_row['Close']
-        volume_ma = df['Volume'].tail(20).mean()
-        current_volume = last_row['Volume']
-        
-        # FILTRI: Prezzo > SMA20, Volume > 1.5x media, RSI non in ipercomprato estremo
-        if current_price > last_row['SMA20'] and current_volume > (volume_ma * 1.5) and last_row['RSI'] < 70:
-            return {
-                "ticker": ticker,
-                "price": round(float(current_price), 2),
-                "rsi": round(float(last_row['RSI']), 2),
-                "vol_increase": round(float(current_volume / volume_ma), 2)
-            }
-    except Exception as e:
-        print(f"Errore analisi {ticker}: {e}")
-    return None
-
-def get_ai_insight(data):
-    prompt = f"""
-    Analizza brevemente questo titolo Mid-Cap: {data['ticker']}.
-    Prezzo: {data['price']}, RSI: {data['rsi']}, Incremento Volume: {data['vol_increase']}x.
-    Identifica livelli di breakout e se c'è accumulazione istituzionale visibile dai volumi. 
-    Sii sintetico e professionale.
-    """
-    try:
-        response = model.generate_content(prompt)
-        return response.text
+        # Filtri: Prezzo sopra media, Volume > 1.5x, RSI < 70
+        if last['Close'] > last['SMA20'] and last['Volume'] > (vol_ma * 1.5) and last['RSI'] < 70:
+            return {"ticker": ticker, "price": round(float(last['Close']), 2), "rsi": round(float(last['RSI']), 2)}
     except:
-        return "Insight AI non disponibile."
+        return None
 
 def main():
-    print(f"Avvio scansione alle {datetime.now()}")
-    found_stocks = []
-    
+    print("Inizio scansione...")
     for ticker in TICKERS:
-        result = analyze_stock(ticker)
-        if result:
-            found_stocks.append(result)
-    
-    if found_stocks:
-        for stock in found_stocks:
-            ai_text = get_ai_insight(stock)
-            msg = (f"🚀 *SEGNALE MID-CAP: {stock['ticker']}*\n\n"
-                   f"💰 Prezzo: ${stock['price']}\n"
-                   f"📊 RSI: {stock['rsi']}\n"
-                   f"📈 Volume: {stock['vol_increase']}x media\n\n"
-                   f"🤖 *Analisi Gemini:* \n{ai_text}")
+        res = analyze_stock(ticker)
+        if res:
+            msg = f"🚀 *BREAKOUT:* {res['ticker']}\nPrezzo: ${res['price']}\nRSI: {res['rsi']}"
             send_telegram_message(msg)
-            print(f"Inviato segnale per {stock['ticker']}")
-    else:
-        print("Nessun titolo soddisfa i criteri al momento.")
+            print(f"Segnale inviato per {ticker}")
+    print("Scansione terminata.")
 
 if __name__ == "__main__":
     main()
