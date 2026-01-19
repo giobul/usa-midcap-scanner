@@ -3,10 +3,10 @@ import sys
 import pandas as pd
 import yfinance as yf
 import requests
-from google import genai
+import google.generativeai as genai
 from datetime import datetime
 
-# Prova a caricare pandas_ta, se manca usiamo calcoli manuali
+# Gestione libreria tecnica (Calcolo manuale se fallisce import)
 try:
     import pandas_ta as ta
     HAS_PANDAS_TA = True
@@ -19,31 +19,32 @@ CHAT = os.getenv("CHAT_ID")
 API_KEY = os.getenv("GEMINI_API_KEY")
 
 def get_ai_analysis(ticker, price, vol_ratio):
-    if not API_KEY: return "Analisi AI non configurata."
+    if not API_KEY: return "Analisi AI non disponibile."
     try:
-        client = genai.Client(api_key=API_KEY)
-        prompt = f"Analizza brevemente il breakout di {ticker} a ${price}. Volume {vol_ratio}x media. Focus su istituzionali."
-        response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+        genai.configure(api_key=API_KEY)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        prompt = f"Analizza brevemente breakout {ticker} a ${price}. Vol {vol_ratio}x. Focus accumulazione."
+        response = model.generate_content(prompt)
         return response.text
     except:
-        return "Insight AI momentaneamente non disponibile."
+        return "Insight AI non disponibile."
 
 def calculate_indicators(df):
     if HAS_PANDAS_TA:
         df['RSI'] = ta.rsi(df['Close'], length=14)
         df['SMA20'] = ta.sma(df['Close'], length=20)
     else:
-        # Calcolo manuale di emergenza se la libreria fallisce
+        # Calcolo manuale RSI e SMA
         delta = df['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
+        rs = gain / (loss + 1e-9)
         df['RSI'] = 100 - (100 / (1 + rs))
         df['SMA20'] = df['Close'].rolling(window=20).mean()
     return df
 
 def main():
-    print(f"Avvio Scansione (Libreria TA: {'OK' if HAS_PANDAS_TA else 'MANUALE'})")
+    print(f"Scanner Online - Modalità TA: {'Standard' if HAS_PANDAS_TA else 'Manuale'}")
     tickers = ['PLTR', 'MSTR', 'RBLX', 'AFRM', 'COIN', 'SHOP', 'DKNG', 'SOFI']
     
     for t in tickers:
@@ -56,21 +57,20 @@ def main():
             vol_ma = df['Volume'].tail(20).mean()
             vol_ratio = round(float(last['Volume'] / vol_ma), 1)
             
-            # FILTRO: Prezzo > SMA20 e Volume > 1.5x (Segnale Istituzionale)
+            # Filtro Breakout Istituzionale (Prezzo > SMA20 e Vol > 1.5x)
             if last['Close'] > last['SMA20'] and vol_ratio > 1.5:
                 ai_text = get_ai_analysis(t, round(float(last['Close']), 2), vol_ratio)
-                msg = (f"🎯 *ACCUMULAZIONE RILEVATA: {t}*\n"
+                msg = (f"🎯 *ACCUMULAZIONE: {t}*\n"
                        f"💰 Prezzo: ${round(float(last['Close']), 2)}\n"
                        f"📈 Vol: {vol_ratio}x media\n"
                        f"📊 RSI: {round(float(last['RSI']), 2)}\n\n"
-                       f"🤖 *AI Insight:* \n{ai_text}")
+                       f"🤖 *Analisi:* {ai_text}")
                 
                 requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
                               json={"chat_id": CHAT, "text": msg, "parse_mode": "Markdown"})
-                print(f"Segnale inviato per {t}")
+                print(f"Inviato: {t}")
         except Exception as e:
-            print(f"Errore su {t}: {e}")
-    print("Fine scansione.")
+            print(f"Errore {t}: {e}")
 
 if __name__ == "__main__":
     main()
