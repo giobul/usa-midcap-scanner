@@ -2,3 +2,4 @@ yfinance
 pandas_ta
 requests
 google-generativeai
+pandas
