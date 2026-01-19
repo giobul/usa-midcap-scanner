@@ -1,26 +1,32 @@
 import os
 import sys
-import yfinance as yf
-import pandas as pd
-import pandas_ta as ta
-import requests
-import google.generativeai as genai
 
-# Configurazione credenziali
+# Controllo di emergenza per le librerie
+try:
+    import pandas as pd
+    import yfinance as yf
+    import requests
+    import google.generativeai as genai
+    import pandas_ta as ta
+except ImportError as e:
+    print(f"ERRORE CRITICO: Manca la libreria -> {e}")
+    sys.exit(1)
+
+# --- CONFIGURAZIONE ---
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT = os.getenv("CHAT_ID")
 API_KEY = os.getenv("GEMINI_API_KEY")
 
 def main():
-    print("--- Avvio Scansione Istituzionale Mid-Cap ---")
+    print("Inizio scansione Mid-Cap...")
     
-    # Inizializza Gemini se presente
+    # Configura Gemini
     model = None
     if API_KEY:
         genai.configure(api_key=API_KEY)
         model = genai.GenerativeModel('gemini-1.5-flash')
 
-    # Focus su Mid-Cap ad alto volume
+    # Lista Mid-Cap Calde
     tickers = ['PLTR', 'MSTR', 'RBLX', 'AFRM', 'COIN', 'SHOP', 'DKNG', 'SOFI']
     
     for t in tickers:
@@ -28,7 +34,7 @@ def main():
             df = yf.download(t, period="60d", interval="1d", progress=False)
             if df.empty: continue
             
-            # Calcolo indicatori
+            # Calcolo RSI e SMA tramite pandas_ta
             df['RSI'] = ta.rsi(df['Close'], length=14)
             df['SMA20'] = ta.sma(df['Close'], length=20)
             
@@ -36,29 +42,17 @@ def main():
             vol_ma = df['Volume'].tail(20).mean()
             vol_ratio = round(float(last['Volume'] / vol_ma), 1)
             
-            # FILTRO: Prezzo > SMA20 e Volume > 1.5x media (Segnale Istituzionale)
+            # FILTRO: Prezzo > SMA20 e Volume > 1.5x (Segnale Istituzionale)
             if last['Close'] > last['SMA20'] and vol_ratio > 1.5:
-                # Analisi AI opzionale
-                ai_analysis = "Analisi non disponibile"
-                if model:
-                    try:
-                        res = model.generate_content(f"Analizza breakout {t} a ${last['Close']} con volume {vol_ratio}x.")
-                        ai_analysis = res.text
-                    except: pass
-
-                msg = (f"🎯 *ACCUMULAZIONE: {t}*\n"
-                       f"💰 Prezzo: ${round(float(last['Close']), 2)}\n"
-                       f"📈 Vol: {vol_ratio}x media\n"
-                       f"📊 RSI: {round(float(last['RSI']), 2)}\n\n"
-                       f"🤖 *AI Insight:* {ai_analysis}")
+                msg = f"🎯 *ACCUMULAZIONE: {t}*\nPrezzo: ${round(float(last['Close']), 2)}\nVol: {vol_ratio}x media\nRSI: {round(float(last['RSI']), 2)}"
                 
-                requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
-                              json={"chat_id": CHAT, "text": msg, "parse_mode": "Markdown"})
+                url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+                requests.post(url, json={"chat_id": CHAT, "text": msg, "parse_mode": "Markdown"})
                 print(f"Segnale inviato per {t}")
         except Exception as e:
             print(f"Errore su {t}: {e}")
     
-    print("--- Scansione terminata con successo ---")
+    print("Scansione terminata.")
 
 if __name__ == "__main__":
     main()
