@@ -1,52 +1,62 @@
 import os
-import sys
-
-# Importazioni standard
-import pandas as pd
 import yfinance as yf
+import pandas as pd
+import pandas_ta as ta
 import requests
 import google.generativeai as genai
-import pandas_ta as ta
-from datetime import datetime
 
-# Credenziali
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# Carico le chiavi dai Secrets di GitHub
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT = os.getenv("CHAT_ID")
+API_KEY = os.getenv("GEMINI_API_KEY")
 
-def send_telegram(msg):
-    if TELEGRAM_TOKEN and CHAT_ID:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        requests.post(url, json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
+# Configurazione Gemini
+if API_KEY:
+    genai.configure(api_key=API_KEY)
+    ai_model = genai.GenerativeModel('gemini-1.5-flash')
+
+def get_ai_analysis(ticker, price, vol_ratio):
+    if not API_KEY: return "Analisi AI non disponibile."
+    prompt = f"Analizza brevemente il breakout di {ticker} a ${price}. Il volume è {vol_ratio}x la media. Focus su accumulazione istituzionale."
+    try:
+        response = ai_model.generate_content(prompt)
+        return response.text
+    except:
+        return "Errore durante l'analisi AI."
 
 def main():
-    print(f"Inizio scansione: {datetime.now()}")
+    print("Avvio scansione Mid-Cap...")
+    tickers = ['PLTR', 'MSTR', 'RBLX', 'AFRM', 'COIN', 'SHOP', 'DKNG', 'SOFI', 'MARA', 'RIOT']
     
-    # Lista ridotta per test rapido
-    tickers = ['PLTR', 'MSTR', 'RBLX', 'AFRM', 'COIN', 'SHOP']
-    
-    for ticker in tickers:
+    for t in tickers:
         try:
-            print(f"Analizzando {ticker}...")
-            df = yf.download(ticker, period="60d", interval="1d", progress=False)
-            
+            df = yf.download(t, period="60d", interval="1d", progress=False)
             if df.empty: continue
             
-            # Calcolo indicatori con pandas_ta
-            rsi = ta.rsi(df['Close'], length=14)
-            if rsi is None or len(rsi) == 0: continue
+            # Indicatori
+            df['RSI'] = ta.rsi(df['Close'], length=14)
+            df['SMA20'] = ta.sma(df['Close'], length=20)
             
-            current_rsi = rsi.iloc[-1]
-            price = df['Close'].iloc[-1]
+            last = df.iloc[-1]
+            vol_ma = df['Volume'].tail(20).mean()
+            vol_ratio = round(float(last['Volume']/vol_ma), 1)
             
-            # Condizione semplificata per il test
-            if current_rsi < 70:
-                msg = f"✅ *Scanner Attivo*\n\nStock: {ticker}\nPrezzo: ${round(float(price), 2)}\nRSI: {round(float(current_rsi), 2)}"
-                send_telegram(msg)
-                print(f"Segnale inviato per {ticker}")
+            # Filtro Istituzionali: Prezzo > SMA20 e Volume > 1.5x media
+            if last['Close'] > last['SMA20'] and vol_ratio > 1.5:
+                ai_text = get_ai_analysis(t, round(float(last['Close']), 2), vol_ratio)
                 
+                msg = (f"🎯 *ACCUMULAZIONE RILEVATA: {t}*\n"
+                       f"💰 Prezzo: ${round(float(last['Close']), 2)}\n"
+                       f"📈 Volume: {vol_ratio}x media\n"
+                       f"📊 RSI: {round(float(last['RSI']), 2)}\n\n"
+                       f"🤖 *Analisi Gemini:* \n{ai_text}")
+                
+                requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
+                              json={"chat_id": CHAT, "text": msg, "parse_mode": "Markdown"})
+                print(f"Segnale inviato per {t}")
         except Exception as e:
-            print(f"Errore su {ticker}: {e}")
+            print(f"Errore su {t}: {e}")
+    print("Scansione terminata.")
 
 if __name__ == "__main__":
-    main()main()
+    main()
