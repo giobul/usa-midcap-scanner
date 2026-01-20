@@ -3,12 +3,12 @@ name: MidCap_Scanner
 on:
   workflow_dispatch:
   schedule:
-    # Check 1: 15:50 ITA (Dati yfinance delle 15:35 - Apertura)
+    # Check 1: 15:50 ITA (Analisi dati apertura)
     - cron: '50 14 * * 1-5'
-    # Check 2: 19:00 ITA (Metà sessione)
+    # Check 2: 19:00 ITA (Check metà sessione)
     - cron: '0 18 * * 1-5'
-    # Check 3: 21:35 ITA (PRE-CHIUSURA: hai 25 min per comprare prima delle 22:00)
-    - cron: '35 20 * * 1-5'
+    # Check 3: 21:20 ITA (Check strategico: hai 40 min per operare)
+    - cron: '20 20 * * 1-5'
 
 jobs:
   run-bot:
