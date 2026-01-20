@@ -5,7 +5,7 @@ import google.generativeai as genai
 from datetime import datetime
 
 # Configurazione Segreti
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") # Nota: Assicurati che su GitHub sia TELEGRAM_BOT_TOKEN
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT = os.getenv("TELEGRAM_CHAT_ID")
 API_KEY = os.getenv("GEMINI_API_KEY")
 
@@ -41,31 +41,26 @@ def main():
         'VOYG', 'JUNS', 'NUVL', 'WSBC', 'STX'
     ]
 
-    # Messaggio di avvio (solo se è orario di apertura)
-    now = datetime.now()
-    if 15 <= now.hour <= 16:
-        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
-                      json={"chat_id": CHAT, "text": "✅ Iceberg Hunter Online. Scansione in corso..."})
+    print(f"Avvio scansione su {len(tickers)} titoli...")
 
     for t in tickers:
         try:
             df = yf.download(t, period="60d", interval="1d", progress=False)
             if df.empty or len(df) < 20: continue
             
-            # Indicatori Base
             last = df.iloc[-1]
             sma20 = df['Close'].rolling(window=20).mean().iloc[-1]
             vol_ma = df['Volume'].tail(20).mean()
             vol_ratio = round(float(last['Volume'] / vol_ma), 2)
             
-            # Formula Iceberg Strength: (Volume / Range Prezzo)
             price_range = abs(last['High'] - last['Low']) / last['Close']
             iceberg_score = int(min((vol_ratio / (price_range * 50 + 0.01)) * 10, 100))
             
-            # Filtro: Prezzo sopra SMA20 e Volume significativo
+            # Filtro Breakout / Iceberg
             if last['Close'] > sma20 and vol_ratio > 1.2:
                 price = round(float(last['Close']), 2)
-                atr = (df['High'] - df['Low']).rolling(window=14).mean().iloc[-1]
+                # Calcolo ATR manuale per evitare pandas_ta
+                atr = (df['High'] - df['Low']).tail(14).mean()
                 stop_loss = round(min(float(sma20), price - (float(atr) * 1.5)), 2)
                 target = round(price + (price - stop_loss) * 2, 2)
                 
@@ -84,112 +79,6 @@ def main():
                               json={"chat_id": CHAT, "text": msg, "parse_mode": "Markdown"})
         except Exception as e:
             print(f"Errore su {t}: {e}")
-            continue
-
-if __name__ == "__main__":
-    main()        'CRSP', 'QBTS', 'ETOR', 'EXTR', 'GILD', 'GOGO', 'INOD', 'ISP', 'INTZ',
-        'IONQ', 'KRMN', 'KPTI', 'MU', 'MRNA', 'NEGG', 'NMIH', 'NVDA', 'OKLO',
-        'ON', 'OSCR', 'OUST', 'PTCT', 'QUBT', 'QS', 'RXRX', 'RGC', 'RNW', 'RGTI',
-        'SPMI', 'SLDP', 'SOUN', 'STLA', 'SUPN', 'SYM', 'TLIT', 'VKTX', 'VIR',
-        'VOYG', 'JUNS', 'NUVL', 'WSBC', 'STX'
-    ]
-
-    now = datetime.now()
-    if now.weekday() == 0 and (15 <= now.hour <= 16):
-        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
-                      json={"chat_id": CHAT, "text": "✅ Iceberg Hunter Online. Monitoraggio Mid-Cap attivo."})
-
-    for t in tickers:
-        try:
-            df = yf.download(t, period="60d", interval="1d", progress=False)
-            if df.empty or len(df) < 20: continue
-            
-            # Indicatori Base
-            last = df.iloc[-1]
-            sma20 = df['Close'].rolling(window=20).mean().iloc[-1]
-            vol_ma = df['Volume'].tail(20).mean()
-            vol_ratio = round(float(last['Volume'] / vol_ma), 2)
-            
-            # Formula Iceberg Strength: (Volume / Range Prezzo)
-            price_range = abs(last['High'] - last['Low']) / last['Close']
-            # Se il volume è alto e il range è stretto, lo score sale
-            iceberg_score = int(min((vol_ratio / (price_range * 50 + 0.01)) * 10, 100))
-            
-            # Filtro: Prezzo sopra SMA20 e Volume significativo [cite: 2026-01-17]
-            if last['Close'] > sma20 and vol_ratio > 1.5:
-                price = round(float(last['Close']), 2)
-                # Calcolo Stop Loss e Target tecnici
-                atr = (df['High'] - df['Low']).rolling(window=14).mean().iloc[-1]
-                stop_loss = round(min(float(sma20), price - (float(atr) * 1.5)), 2)
-                target = round(price + (price - stop_loss) * 2, 2)
-                
-                ai_text = get_ai_analysis(t, price, vol_ratio, iceberg_score, stop_loss, target)
-                
-                header = "🧊 ICEBERG ALERT" if iceberg_score > 70 else "🚀 BREAKOUT"
-                msg = (f"{header}: *{t}*\n"
-                       f"💰 Prezzo: **${price}**\n"
-                       f"📊 Iceberg Strength: `{iceberg_score}/100`\n"
-                       f"📈 Vol Ratio: {vol_ratio}x\n"
-                       f"🛡️ Stop Loss: `${stop_loss}`\n"
-                       f"🚀 Target Price: `${target}`\n\n"
-                       f"🤖 *Analisi:* {ai_text}")
-                
-                requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
-                              json={"chat_id": CHAT, "text": msg, "parse_mode": "Markdown"})
-        except Exception as e:
-            continue
-
-if __name__ == "__main__":
-    main()        'CRSP', 'QBTS', 'ETOR', 'EXTR', 'GILD', 'GOGO', 'INOD', 'ISP', 'INTZ',
-        'IONQ', 'KRMN', 'KPTI', 'MU', 'MRNA', 'NEGG', 'NMIH', 'NVDA', 'OKLO',
-        'ON', 'OSCR', 'OUST', 'PTCT', 'QUBT', 'QS', 'RXRX', 'RGC', 'RNW', 'RGTI',
-        'SPMI', 'SLDP', 'SOUN', 'STLA', 'SUPN', 'SYM', 'TLIT', 'VKTX', 'VIR',
-        'VOYG', 'JUNS', 'NUVL', 'WSBC', 'STX'
-    ]
-
-    now = datetime.now()
-    if now.weekday() == 0 and (15 <= now.hour <= 16):
-        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
-                      json={"chat_id": CHAT, "text": "✅ Iceberg Hunter Online. Monitoraggio Mid-Cap attivo."})
-
-    for t in tickers:
-        try:
-            df = yf.download(t, period="60d", interval="1d", progress=False)
-            if df.empty or len(df) < 20: continue
-            
-            # Indicatori Base
-            last = df.iloc[-1]
-            sma20 = df['Close'].rolling(window=20).mean().iloc[-1]
-            vol_ma = df['Volume'].tail(20).mean()
-            vol_ratio = round(float(last['Volume'] / vol_ma), 2)
-            
-            # Formula Iceberg Strength: (Volume / Range Prezzo)
-            price_range = abs(last['High'] - last['Low']) / last['Close']
-            # Se il volume è alto e il range è stretto, lo score sale
-            iceberg_score = int(min((vol_ratio / (price_range * 50 + 0.01)) * 10, 100))
-            
-            # Filtro: Prezzo sopra SMA20 e Volume significativo [cite: 2026-01-17]
-            if last['Close'] > sma20 and vol_ratio > 1.5:
-                price = round(float(last['Close']), 2)
-                # Calcolo Stop Loss e Target tecnici
-                atr = (df['High'] - df['Low']).rolling(window=14).mean().iloc[-1]
-                stop_loss = round(min(float(sma20), price - (float(atr) * 1.5)), 2)
-                target = round(price + (price - stop_loss) * 2, 2)
-                
-                ai_text = get_ai_analysis(t, price, vol_ratio, iceberg_score, stop_loss, target)
-                
-                header = "🧊 ICEBERG ALERT" if iceberg_score > 70 else "🚀 BREAKOUT"
-                msg = (f"{header}: *{t}*\n"
-                       f"💰 Prezzo: **${price}**\n"
-                       f"📊 Iceberg Strength: `{iceberg_score}/100`\n"
-                       f"📈 Vol Ratio: {vol_ratio}x\n"
-                       f"🛡️ Stop Loss: `${stop_loss}`\n"
-                       f"🚀 Target Price: `${target}`\n\n"
-                       f"🤖 *Analisi:* {ai_text}")
-                
-                requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
-                              json={"chat_id": CHAT, "text": msg, "parse_mode": "Markdown"})
-        except Exception as e:
             continue
 
 if __name__ == "__main__":
