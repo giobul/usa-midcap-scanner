@@ -1,8 +1,14 @@
 name: MidCap_Scanner
+
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 15,18,21 * * 1-5'
+    # Check 1: 15:50 ITA (Dati yfinance delle 15:35 - Apertura)
+    - cron: '50 14 * * 1-5'
+    # Check 2: 19:00 ITA (Metà sessione)
+    - cron: '0 18 * * 1-5'
+    # Check 3: 21:35 ITA (PRE-CHIUSURA: hai 25 min per comprare prima delle 22:00)
+    - cron: '35 20 * * 1-5'
 
 jobs:
   run-bot:
@@ -10,10 +16,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - name: Install and Run
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
