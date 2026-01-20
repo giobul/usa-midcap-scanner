@@ -1,33 +1,29 @@
-name: MidCap_Scanner
+name: MidCap Scanner
 
 on:
-  workflow_dispatch:
-  schedule:
-    # Check 1: 15:52 ITA (Analisi post-apertura, dati delle 15:37)
-    - cron: '52 14 * * 1-5'
-    # Check 2: 19:07 ITA (Analisi metà sessione, dati delle 18:52)
-    - cron: '07 18 * * 1-5'
-    # Check 3: 21:12 ITA (PRE-CHIUSURA: analisi dati delle 20:57. Hai 45 min per comprare)
-    - cron: '12 20 * * 1-5'
-    - cron: '30 19 * * 1-5'
+  workflow_dispatch: # Permette l'attivazione esterna da Cron-job.org e manuale
 
 jobs:
-  run-bot:
+  scan:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.10'
 
-      - name: Install and Run
-        env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      - name: Install dependencies
         run: |
-          pip install pandas yfinance requests google-generativeai
-          python scanner_pro.py
+          python -m pip install --upgrade pip
+          pip install pandas yfinance pandas_ta requests
+
+      - name: Run Scanner
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Se il tuo script usa le API di Gemini, aggiungi qui la tua chiave:
+          # GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python scanner_pro.py
