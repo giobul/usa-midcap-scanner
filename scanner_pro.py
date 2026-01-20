@@ -57,7 +57,7 @@ def main():
             iceberg_score = int(min((vol_ratio / (price_range * 50 + 0.01)) * 10, 100))
             
             # Filtro Breakout / Iceberg
-            if last['Close'] > sma20 and vol_ratio > 1.2:
+            if True:
                 price = round(float(last['Close']), 2)
                 # Calcolo ATR manuale per evitare pandas_ta
                 atr = (df['High'] - df['Low']).tail(14).mean()
