@@ -14,10 +14,8 @@ def get_ai_analysis(ticker, price, vol_ratio, iceberg_score, stop_loss, target):
     try:
         genai.configure(api_key=API_KEY)
         model = genai.GenerativeModel('gemini-1.5-flash')
-        prompt = (f"Analizza $ {ticker} a ${price}. Volume {vol_ratio}x la media. "
-                  f"Iceberg Strength Score: {iceberg_score}/100. "
-                  f"Lo Stop Loss è ${stop_loss} e il Target ${target}. "
-                  f"Valida se è un'accumulazione istituzionale 'Iceberg' e indica la qualità del setup.")
+        prompt = (f"Analizza brevemente $ {ticker} a ${price}. Volume {vol_ratio}x la media. "
+                  f"Iceberg Strength: {iceberg_score}/100. Valida l'accumulazione.")
         response = model.generate_content(prompt)
         return response.text
     except:
@@ -41,7 +39,9 @@ def main():
         'VOYG', 'JUNS', 'NUVL', 'WSBC', 'STX'
     ]
 
-    print(f"Avvio scansione su {len(tickers)} titoli...")
+    found_alerts = 0
+    total_scanned = len(tickers)
+    print(f"Avvio scansione su {total_scanned} titoli...")
 
     for t in tickers:
         try:
@@ -56,10 +56,10 @@ def main():
             price_range = abs(last['High'] - last['Low']) / last['Close']
             iceberg_score = int(min((vol_ratio / (price_range * 50 + 0.01)) * 10, 100))
             
-            # Filtro Breakout / Iceberg
-            if True:
+            # FILTRO ORIGINALE RIPRISTINATO
+            if last['Close'] > sma20 and vol_ratio > 1.2:
+                found_alerts += 1
                 price = round(float(last['Close']), 2)
-                # Calcolo ATR manuale per evitare pandas_ta
                 atr = (df['High'] - df['Low']).tail(14).mean()
                 stop_loss = round(min(float(sma20), price - (float(atr) * 1.5)), 2)
                 target = round(price + (price - stop_loss) * 2, 2)
@@ -67,19 +67,22 @@ def main():
                 ai_text = get_ai_analysis(t, price, vol_ratio, iceberg_score, stop_loss, target)
                 
                 header = "🧊 ICEBERG ALERT" if iceberg_score > 70 else "🚀 BREAKOUT"
-                msg = (f"{header}: *{t}*\n"
-                       f"💰 Prezzo: **${price}**\n"
-                       f"📊 Iceberg Strength: `{iceberg_score}/100`\n"
-                       f"📈 Vol Ratio: {vol_ratio}x\n"
-                       f"🛡️ Stop Loss: `${stop_loss}`\n"
-                       f"🚀 Target Price: `${target}`\n\n"
-                       f"🤖 *Analisi:* {ai_text}")
+                msg = (f"{header}: *{t}*\n💰 Prezzo: **${price}**\n📊 Iceberg: `{iceberg_score}/100`\n"
+                       f"📈 Vol Ratio: {vol_ratio}x\n🛡️ SL: `${stop_loss}` | TP: `${target}`\n🤖 AI: {ai_text}")
                 
                 requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
                               json={"chat_id": CHAT, "text": msg, "parse_mode": "Markdown"})
         except Exception as e:
             print(f"Errore su {t}: {e}")
-            continue
+
+    # Messaggio finale di stato
+    if found_alerts == 0:
+        print("Nessun segnale trovato. Invio messaggio di stato...")
+        status_msg = (f"☕ *Scansione Completata*\n"
+                      f"Analizzati {total_scanned} titoli.\n"
+                      f"Nessun segnale rilevato con i filtri attuali (Prezzo > SMA20 e Vol > 1.2x).")
+        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
+                      json={"chat_id": CHAT, "text": status_msg, "parse_mode": "Markdown"})
 
 if __name__ == "__main__":
     main()
