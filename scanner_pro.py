@@ -5,33 +5,23 @@ import os
 import requests
 import time
 
-# --- 1. CONFIGURAZIONE UTENTE ---
-MY_PORTFOLIO = ["STNE"]  # Inserisci qui i tuoi titoli acquistati
+# --- 1. CONFIGURAZIONE ---
+MY_PORTFOLIO = ["STNE"] # I tuoi titoli
+ORARI_CACCIA = [14, 17, 20] # 15:00, 18:00, 21:00 Italiane
 
-# LISTA 150 TITOLI MID-CAP / GROWTH LEADER 2026
 FULL_WATCHLIST = [
-    # FINTECH & BANKING
-    "STNE", "NU", "PAGS", "SOFI", "UPST", "MELI", "AFRM", "HOOD", "SQ", "PYPL", "BBD", "ITUB", "XP", "GS", "MS", "COIN", "DKNG",
-    # AI INFRASTRUCTURE & SEMIS
-    "VRT", "ANET", "APP", "PSTG", "SMCI", "LUMN", "PLTR", "MSTR", "AMBA", "AEIS", "ARM", "ALAB", "MRVL", "NVDA", "AMD", "TSM", "AVGO", "ASML", "KLAC", "LRCX",
-    # CYBERSECURITY & SOFTWARE
-    "CRWD", "NET", "OKTA", "ZS", "DDOG", "SNOW", "APPS", "MDB", "PANW", "FTNT", "S", "TMUS", "PATH", "IOT", "MNTV", "GTLB", "TEAM", "WDAY", "NOW",
-    # HEALTHCARE & BIOTECH
-    "CLOV", "MEDP", "HALO", "KRYS", "VRTX", "AMGN", "DOC", "AVB", "TDOC", "RXRX", "ILMN", "EXAS", "CRSP", "BEAM", "NTLA", "EDIT",
-    # CONSUMER, EV & ENERGY
-    "CELH", "WING", "BOOT", "TSLA", "RIVN", "LCID", "NIO", "XPEV", "LI", "FSLR", "ENPH", "SEDG", "RUN", "CHPT", "BLNK", "PLUG",
-    # RETAIL & E-COMMERCE
-    "SHOP", "SE", "AMZN", "BABA", "PDD", "JD", "CPNG", "RVLV", "FIGS", "DASH", "UBER", "LYFT", "ABNB", "BKNG",
-    # OTHER MID-CAP LEADERS
-    "RBLX", "U", "TOST", "DUOL", "MNSO", "GME", "AMC", "HOOD", "COIN", "MARA", "RIOT", "CLSK", "IREN", "WULF",
-    # ADDING FILLERS TO REACH ~150
-    "OPEN", "RDFN", "Z", "BMBL", "MTCH", "RKT", "UWMC", "LDI", "ASAN", "SMARTS", "ESTC", "ZEN", "NEWR", "SPLK", "SUMO", "JFROG", 
-    "FIVN", "BLZE", "VRNS", "FORG", "PGR", "ALL", "TRV", "CB", "AIG", "MET", "PRU", "LNC", "IVZ", "BEN", "TROW", "BLK", "AMP"
-] # Nota: Ho inserito i principali leader, puoi aggiungere altri fino a 150.
+    "STNE", "NU", "PAGS", "MELI", "SOFI", "UPST", "AFRM", "HOOD", "SQ", "PYPL", "COIN", "XP", "BBD", "ITUB", "GS", "MS", "TOST", "FLYR", "BILL", "ADYEN",
+    "VRT", "ANET", "APP", "PSTG", "SMCI", "LUMN", "PLTR", "MSTR", "NVDA", "AMD", "AVGO", "ARM", "MRVL", "ALAB", "AMBA", "AEIS", "BSX", "TSM", "ASML", "KLAC", "LRCX", "MU", "TDC", "HPE", "DELL",
+    "CRWD", "NET", "OKTA", "ZS", "DDOG", "SNOW", "PANW", "FTNT", "S", "PATH", "IOT", "GTLB", "TEAM", "WDAY", "NOW", "MDB", "ESTC", "SPLK", "ZEN", "APPS", "DOCU", "TWLO", "GDDY", "ADBE", "CRM",
+    "SHOP", "SE", "U", "RBLX", "DUOL", "MNSO", "DASH", "UBER", "LYFT", "ABNB", "BKNG", "CPNG", "RVLV", "FIGS", "PINS", "SNAP", "ROKU", "ETSY", "DKNG", "SKLZ",
+    "CLOV", "MEDP", "HALO", "KRYS", "VRTX", "AMGN", "TDOC", "RXRX", "ILMN", "EXAS", "CRSP", "BEAM", "NTLA", "EDIT", "mRNA", "BNTX", "SAVA", "CERE", "BIIB", "REGN",
+    "ON", "TER", "ENTG", "WOLF", "LSCC", "QRVO", "SWKS", "MP", "INDI", "POWI", "RMBS", "MTSI", "SIAB", "MXL", "DIOD",
+    "TSLA", "RIVN", "LCID", "NIO", "XPEV", "LI", "FSLR", "ENPH", "SEDG", "RUN", "CHPT", "BLNK", "PLUG", "SPCE", "RKLB", "BOWL", "QS", "PSNY", "NKLA", "BE",
+    "MARA", "RIOT", "CLSK", "IREN", "WULF", "HIVE", "BITF", "BTBT", "CORZ", "CIFR",
+    "CELH", "WING", "BOOT", "LULU", "ONON", "SKX", "DECK", "BIRK", "ELF", "MNST", "SBUX", "CMG", "SHAK", "CAVA"
+]
 
-ORARI_CACCIA = [15, 18, 21] 
-
-# --- 2. FUNZIONI DI SERVIZIO ---
+# --- 2. FUNZIONI ---
 def send_telegram(message):
     token = os.getenv("TELEGRAM_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
@@ -47,67 +37,54 @@ def calculate_rsi(prices, period=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-# --- 3. ANALISI TECNICA ---
 def analyze_stock(ticker, is_full_scan):
     try:
         df = yf.download(ticker, period="3d", interval="15m", progress=False)
-        if df.empty: return
+        if df.empty: return False
 
-        current_price = float(df['Close'].iloc[-1])
-        volume_last = float(df['Volume'].iloc[-1])
-        volume_avg = float(df['Volume'].mean())
+        cp = float(df['Close'].iloc[-1])
+        lp = float(df['Close'].iloc[-2])
+        vol = float(df['Volume'].iloc[-1])
+        avg_vol = float(df['Volume'].mean())
         df['RSI'] = calculate_rsi(df['Close'])
-        current_rsi = float(df['RSI'].iloc[-1])
-
-        # LOGICA EXIT (Portfolio)
-        if ticker in MY_PORTFOLIO:
-            if current_rsi > 75:
-                send_telegram(f"⚠️ *EXIT ALERT: {ticker}*\nRSI: {current_rsi:.2f} (Ipercomprato)\nPrezzo: ${current_price:.2f}")
-            elif current_price >= 16.80 and ticker == "STNE":
-                send_telegram(f"🎯 *TARGET RAGGIUNTO: {ticker}*\nPrezzo: ${current_price:.2f}")
-
-        # LOGICA ENTRY (Sweep & Iceberg)
-        # In scansione completa (Caccia) cerchiamo volumi > 1.5x
-        # In scansione rapida (Difesa) segnaliamo solo se > 2.5x
-        multiplier = 1.5 if is_full_scan else 2.5
+        rsi = float(df['RSI'].iloc[-1])
         
-        if volume_last > (volume_avg * multiplier):
-            label = "🔥 OPTION SWEEP" if volume_last > (volume_avg * 2.5) else "🧊 ICEBERG"
-            send_telegram(f"{label} su *{ticker}*\nPrezzo: ${current_price:.2f}\nVol: {volume_last:.0f} (Avg: {volume_avg:.0f})")
+        found = False
 
-    except: pass
+        # --- LOGICA EXIT (PORTFOLIO) ---
+        if ticker in MY_PORTFOLIO and rsi > 75:
+            send_telegram(f"⚠️ *EXIT ALERT*: {ticker}\nRSI: {rsi:.2f} (Eccesso)\nPrezzo: ${cp:.2f}")
+            found = True
 
-# --- 4. MOTORE PRINCIPALE ---
+        # --- LOGICA CACCIA (ICEBERG/SWEEP) ---
+        mult = 1.5 if is_full_scan else 2.5
+        if vol > (avg_vol * mult):
+            trend = "📈" if cp > lp else "📉"
+            stato = "IN RISALITA" if cp > lp else "IN COSTRUZIONE (Accumulo sui minimi)"
+            label = "🔥 *OPTION SWEEP*" if vol > (avg_vol * 2.5) else "🧊 *ICEBERG DETECTED*"
+            
+            send_telegram(f"{label} su *{ticker}*\nStato: {stato} {trend}\nPrezzo: ${cp:.2f}\nVol: {vol:.0f} (vs Avg: {avg_vol:.0f})\nRSI: {rsi:.2f}")
+            found = True
+        return found
+    except: return False
+
 def main():
     now = datetime.datetime.now()
-    # Variabile per contare quanti alert sono stati inviati
-    alert_counter = 0
-    
-    # Determiniamo la modalità
-    if now.hour in ORARI_CACCIA and now.minute < 20:
-        mode = "FULL_SCAN"
-        tickers = list(set(FULL_WATCHLIST + MY_PORTFOLIO))
-        print(f"🚀 {now.strftime('%H:%M')} - Avvio Scansione Completa...")
+    if now.hour in ORARI_CACCIA and now.minute < 25:
+        mode, tickers = "CACCIA", list(set(FULL_WATCHLIST + MY_PORTFOLIO))
+        head = f"🚀 *SCANSIONE CACCIA* ({now.strftime('%H:%M')} UTC)"
     else:
-        mode = "PORTFOLIO_ONLY"
-        tickers = MY_PORTFOLIO
-        print(f"🛡️ {now.strftime('%H:%M')} - Monitoraggio Portfolio...")
+        mode, tickers = "DIFESA", MY_PORTFOLIO
+        head = f"🛡️ *CHECK DIFESA* ({now.strftime('%H:%M')} UTC)"
 
-    # Eseguiamo l'analisi e contiamo i messaggi inviati
-    for ticker in tickers:
-        # Modifica analyze_stock affinché restituisca True se invia un messaggio
-        result = analyze_stock(ticker, is_full_scan=(mode == "FULL_SCAN"))
-        if result: 
-            alert_counter += 1
-        time.sleep(0.5)
+    alert_count = 0
+    for t in tickers:
+        if analyze_stock(t, mode == "CACCIA"): alert_count += 1
+        time.sleep(0.3)
 
-    # --- NUOVA LOGICA DI RIEPILOGO ---
-    # Se siamo in scansione completa e NON è stato trovato nulla di rilevante
-    if mode == "FULL_SCAN" and alert_counter == 0:
-        send_telegram("✅ *Scansione Completata*: Nessun movimento istituzionale (Iceberg/Sweep) rilevato sui 150 titoli.")
-    
-    # Se siamo in modalità difesa e tutto è tranquillo
-    elif mode == "PORTFOLIO_ONLY" and alert_counter == 0:
-        print("Tutto tranquillo nel portfolio.") 
-        # Qui non inviamo nulla su Telegram per evitare spam ogni 20 min, 
-        # a meno che tu non lo voglia specificamente.
+    if alert_count == 0:
+        msg = "Nessun movimento istituzionale." if mode == "CACCIA" else "Portafoglio sotto controllo, nessun segnale."
+        send_telegram(f"{head}\n✅ *OK*: {msg}")
+
+if __name__ == "__main__":
+    main()
