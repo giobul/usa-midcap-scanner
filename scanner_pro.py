@@ -2,87 +2,101 @@ import os
 import requests
 import pandas as pd
 import yfinance as yf
+import time
 
-# --- 1. CONFIGURAZIONE CHIAVI ---
-# Assicurati che su GitHub Secrets i nomi siano ESATTAMENTE questi
+# Credenziali
 TOKEN = os.getenv('TELEGRAM_TOKEN')
 CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
-def send_telegram_message(message):
-    if not TOKEN or not CHAT_ID:
-        print("ERRORE: Chiavi TOKEN o CHAT_ID mancanti nei Secrets di GitHub!")
-        return
-    
-    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
-    try:
-        r = requests.post(url, json=payload)
-        print(f"Invio a Telegram: {r.status_code} - {r.text}")
-    except Exception as e:
-        print(f"Errore di rete: {e}")
+def get_rsi(series, period=14):
+    delta = series.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
 
 def analyze_market():
-    # TEST: Se inserisci ABT e il bot funziona, DEVE arrivarti l'alert di vendita
-    watchlist_vendita = ["ABT"] 
-
-    # LISTA 150 LEADER 2026
-    tickers = [
-        "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "AVGO", "LLY", "V",
-        "MA", "ORCL", "COST", "NFLX", "AMD", "ADBE", "CRM", "QCOM", "INTC", "AMAT",
-        "PLTR", "ISRG", "CAT", "AXP", "MS", "BKNG", "MU", "ETN", "LRCX", "BSX",
-        "PANW", "GILD", "ADI", "ANET", "KLAC", "CRWD", "MAR", "ADSK", "HCA", "VRT",
-        "APP", "MSTR", "HOOD", "COIN", "SOFI", "SHOP", "SNOW", "DDOG", "NET", "ZS",
-        "TEAM", "MDB", "SQ", "AFRM", "PATH", "PINS", "ENPH", "RUN", "FSLR", "DKNG",
-        "MELI", "SE", "BABA", "PYPL", "GME", "DELL", "HPE", "SMCI", "ARM", "ASML",
-        "TSM", "ON", "STLA", "RACE", "TMO", "ABT", "DHR", "GEHC", "ALGN", "VLO",
-        "MPC", "PSX", "IBM", "UBER", "SNPS", "CDNS", "WDAY", "ROP", "MCHP", "TEL",
-        "APH", "STX", "WDC", "LULU", "CPRT", "T", "VZ", "BA", "RTX", "LMT",
-        "GEV", "HON", "DE", "LOW", "HD", "TJX", "PGR", "CB", "BLK", "JPM",
-        "BAC", "WFC", "C", "GS", "SCHW", "ABBV", "JNJ", "PFE", "MRK", "UNH",
-        "ELV", "CI", "COR", "SYK", "ZTS", "IDXX", "WMT", "TGT", "PG", "KO",
-        "PEP", "PM", "MO", "XOM", "CVX", "SLB", "HAL", "OXY", "LIN", "LYTS"
-    ]
+    watchlist_vendita = ["ABT", "RUN"] 
     
+    # LISTA 150 TITOLI (Mid-Cap, Growth, AI, Tech & Crypto-related)
+    tickers = [
+        "PLTR", "VRT", "MSTR", "CELH", "DUOL", "IOT", "PATH", "SNOW", "ONON", "AFRM",
+        "HOOD", "RDDT", "ARM", "OKLO", "S", "GTLB", "APP", "NTRA", "NU", "FRSH",
+        "CRWD", "DDOG", "NET", "ZS", "PANW", "SE", "MELI", "U", "RBLX", "COIN",
+        "MARA", "RIOT", "CLSK", "UPST", "MQ", "SOFI", "SHOP", "TOST", "DKNG", "PINS",
+        "TTD", "SNAP", "RCL", "CCL", "NCLH", "UBER", "LYFT", "DASH", "ABNB", "RIVN",
+        "LCID", "NIO", "XPEV", "LI", "TSLA", "BYDDF", "SQ", "PYPL", "DOCU", "ZM",
+        "TEAM", "ADBE", "CRM", "NOW", "WDAY", "INTU", "ORCL", "SNPS", "CDNS", "ANSS",
+        "ASML", "LRCX", "AMAT", "KLAC", "TSM", "AMD", "NVDA", "AVGO", "QCOM", "MU",
+        "AMBA", "ALTR", "LSCC", "MRVL", "Wolf", "ON", "STNE", "PAGS", "GLOB", "EPAM",
+        "COST", "WMT", "TGT", "LULU", "NKE", "DECK", "SKX", "CROX", "ELF", "MNST",
+        "MDLZ", "CELH", "VITL", "WING", "CAVA", "SG", "CHOTW", "HIMS", "TDOC", "ABBV",
+        "LLY", "NVO", "VRTX", "REGN", "ISRG", "BSX", "EW", "ALGN", "TMDX", "SWAV",
+        "FSLR", "ENPH", "SEDG", "RUN", "SPWR", "NEE", "GE", "VST", "CEG", "TLRY",
+        "CGC", "MSOS", "XBI", "IBB", "SMH", "SOXX", "KRE", "XLF", "XLY", "XLI"
+    ]
+
     segnali_buy = []
     segnali_sell = []
 
-    print(f"Analisi avviata su {len(tickers)} titoli...")
+    print(f"Inizio analisi di {len(tickers)} titoli...")
 
     for ticker in tickers:
         try:
-            data = yf.download(ticker, period="1mo", interval="1d", progress=False).dropna()
-            if len(data) < 20: continue
+            t = yf.Ticker(ticker)
+            
+            # Filtro Market Cap (2B - 30B) - Alzato leggermente per i leader 2026
+            info = t.info
+            mcap = info.get('marketCap', 0)
+            if mcap < 2e9: continue 
 
-            price = data['Close'].iloc[-1]
-            sma20 = data['Close'].rolling(20).mean().iloc[-1]
-            vol = data['Volume'].iloc[-1]
-            avg_vol = data['Volume'].rolling(20).mean().iloc[-1]
+            df = t.history(period="4mo") # Un po' di dati in più per sicurezza
+            if len(df) < 30: continue
 
-            # AZIONE 1: Rilevamento BUY (Iceberg)
-            if price > sma20 and vol > (avg_vol * 1.5):
-                score = min(100, int((vol / avg_vol) * 20))
-                if score > 50:
-                    segnali_buy.append(f"🔥 *ICEBERG*: {ticker}\nPrezzo: ${price:.2f}\nScore: {score}/100")
+            # Indicatori
+            price = df['Close'].iloc[-1]
+            sma20 = df['Close'].rolling(20).mean().iloc[-1]
+            vol_attuale = df['Volume'].iloc[-1]
+            vol_medio = df['Volume'].rolling(20).mean().iloc[-1]
+            rsi = get_rsi(df['Close']).iloc[-1]
+            high_20d = df['High'].iloc[-21:-1].max()
 
-            # AZIONE 2: Rilevamento SELL (Watchlist)
-            if ticker in watchlist_vendita:
-                if price < sma20:
-                    segnali_sell.append(f"⚠️ *SELL*: {ticker}\nPrezzo: ${price:.2f} (Sotto SMA20)")
+            # LOGICA BUY (Breakout + Iceberg Vol + RSI < 68)
+            if vol_attuale > (vol_medio * 1.5) and price > high_20d and rsi < 68:
+                segnali_buy.append(
+                    f"💎 **MID-CAP GEM**: {ticker}\n"
+                    f"💰 Prezzo: ${price:.2f}\n"
+                    f"📊 RSI: {rsi:.1f}\n"
+                    f"🔥 Vol: +{int((vol_attuale/vol_medio-1)*100)}%\n"
+                    f"🏛️ Cap: {mcap/1e9:.1f}B"
+                )
+
+            # LOGICA SELL (Watchlist)
+            if ticker in watchlist_vendita and price < sma20:
+                segnali_sell.append(f"⚠️ **EXIT ALERT**: {ticker}\nPrezzo: ${price:.2f} (Sotto SMA20)")
+
+            # Piccola pausa per non essere bloccati da Yahoo Finance
+            time.sleep(0.1)
 
         except Exception as e:
-            continue
+            print(f"Salto {ticker}: {e}")
 
-    # --- INVIO REPORT ---
+    # Invio Report
+    base_url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    
     if segnali_buy:
-        send_telegram_message("🚀 **NUOVE OPPORTUNITÀ** 🚀\n\n" + "\n\n".join(segnali_buy))
+        # Divido i messaggi se sono troppi (limite Telegram 4096 caratteri)
+        for i in range(0, len(segnali_buy), 5):
+            chunk = segnali_buy[i:i+5]
+            text = "🎯 **BREAKOUT RILEVATI** 🎯\n\n" + "\n\n".join(chunk)
+            requests.post(base_url, json={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
     
     if segnali_sell:
-        send_telegram_message("📢 **ALERT VENDITA** 📢\n\n" + "\n\n".join(segnali_sell))
-    
+        text = "📢 **ALERT VENDITA** 📢\n\n" + "\n\n".join(segnali_sell)
+        requests.post(base_url, json={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
+
     if not segnali_buy and not segnali_sell:
-        send_telegram_message("✅ *Scansione completata*: Nessun segnale rilevante al momento.")
+        requests.post(base_url, json={"chat_id": CHAT_ID, "text": "☕ *Scansione 150 completata*: Nessun segnale istituzionale.", "parse_mode": "Markdown"})
 
 if __name__ == "__main__":
-    # Messaggio iniziale per confermare che il bot è vivo
-    print("Avvio script...")
     analyze_market()
