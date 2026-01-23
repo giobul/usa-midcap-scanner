@@ -80,18 +80,34 @@ def analyze_stock(ticker, is_full_scan):
 # --- 4. MOTORE PRINCIPALE ---
 def main():
     now = datetime.datetime.now()
+    # Variabile per contare quanti alert sono stati inviati
+    alert_counter = 0
+    
+    # Determiniamo la modalità
     if now.hour in ORARI_CACCIA and now.minute < 20:
         mode = "FULL_SCAN"
         tickers = list(set(FULL_WATCHLIST + MY_PORTFOLIO))
-        send_telegram("🚀 *Inizio Scansione Completa (150 titoli)*")
+        print(f"🚀 {now.strftime('%H:%M')} - Avvio Scansione Completa...")
     else:
         mode = "PORTFOLIO_ONLY"
         tickers = MY_PORTFOLIO
-        print(f"Monitoraggio Portfolio: {tickers}")
+        print(f"🛡️ {now.strftime('%H:%M')} - Monitoraggio Portfolio...")
 
+    # Eseguiamo l'analisi e contiamo i messaggi inviati
     for ticker in tickers:
-        analyze_stock(ticker, is_full_scan=(mode == "FULL_SCAN"))
+        # Modifica analyze_stock affinché restituisca True se invia un messaggio
+        result = analyze_stock(ticker, is_full_scan=(mode == "FULL_SCAN"))
+        if result: 
+            alert_counter += 1
         time.sleep(0.5)
 
-if __name__ == "__main__":
-    main()
+    # --- NUOVA LOGICA DI RIEPILOGO ---
+    # Se siamo in scansione completa e NON è stato trovato nulla di rilevante
+    if mode == "FULL_SCAN" and alert_counter == 0:
+        send_telegram("✅ *Scansione Completata*: Nessun movimento istituzionale (Iceberg/Sweep) rilevato sui 150 titoli.")
+    
+    # Se siamo in modalità difesa e tutto è tranquillo
+    elif mode == "PORTFOLIO_ONLY" and alert_counter == 0:
+        print("Tutto tranquillo nel portfolio.") 
+        # Qui non inviamo nulla su Telegram per evitare spam ogni 20 min, 
+        # a meno che tu non lo voglia specificamente.
