@@ -8,7 +8,7 @@ TOKEN = os.getenv('TELEGRAM_TOKEN')
 CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 # [IMPORTANTE] Inserisci qui i ticker che compri effettivamente
-watchlist_vendita = ["RUN"] 
+watchlist_vendita = ["ABT"] 
 
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
