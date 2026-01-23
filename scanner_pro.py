@@ -4,12 +4,12 @@ import pandas as pd
 import yfinance as yf
 import time
 
-# Recupero credenziali dai Secrets di GitHub
+# Configurazione Credenziali
 TOKEN = os.getenv('TELEGRAM_TOKEN')
 CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 def get_rsi(series, period=14):
-    """Calcola l'RSI manualmente per massima affidabilità"""
+    """Calcolo manuale RSI per evitare errori di librerie esterne"""
     delta = series.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
@@ -17,10 +17,10 @@ def get_rsi(series, period=14):
     return 100 - (100 / (1 + rs))
 
 def analyze_market():
-    # 1. Tua Watchlist Personale per segnali di uscita (SMA20)
+    # 1. Watchlist per monitoraggio uscita (SMA20)
     watchlist_vendita = ["ABT", "RUN", "STNE"] 
     
-    # 2. LISTA COMPLETA 150 TITOLI (Mid-Cap, Growth e AI Leader)
+    # 2. LISTA COMPLETA 150 TITOLI (Mid-Cap, Growth e AI Leader 2026)
     tickers = [
         "PLTR", "VRT", "MSTR", "CELH", "DUOL", "IOT", "PATH", "SNOW", "ONON", "AFRM",
         "HOOD", "RDDT", "ARM", "OKLO", "S", "GTLB", "APP", "NTRA", "NU", "FRSH",
@@ -35,21 +35,22 @@ def analyze_market():
         "VITL", "WING", "CAVA", "SG", "HIMS", "TDOC", "ABBV", "LLY", "NVO", "VRTX",
         "REGN", "ISRG", "BSX", "EW", "ALGN", "TMDX", "SWAV", "FSLR", "ENPH", "SEDG",
         "NEE", "GE", "VST", "CEG", "TLRY", "CGC", "MSOS", "XBI", "IBB", "SMH", "SOXX",
-        "KRE", "XLF", "XLY", "XLI", "DKNG", "DOCN", "MNDY", "SPSC", "SQSP", "FYBR"
+        "KRE", "XLF", "XLY", "XLI", "DKNG", "DOCN", "MNDY", "SPSC", "SQSP", "FYBR",
+        "COSM", "VERI", "BASE", "GCT", "TME", "PDD", "JD", "BABA", "BIDU", "NTES"
     ]
 
     segnali_buy = []
     segnali_sell = []
 
-    print(f"Inizio scansione professionale su {len(tickers)} titoli...")
+    print(f"Scansione di {len(tickers)} titoli in corso...")
 
     for ticker in tickers:
         try:
             t = yf.Ticker(ticker)
-            
-            # FILTRO MARKET CAP (2B - 30B per focus Mid-Cap)
             info = t.info
             mcap = info.get('marketCap', 0)
+            
+            # Filtro Mid-Cap (2B - 35B)
             if mcap < 2e9: continue 
 
             df = t.history(period="4mo")
@@ -63,10 +64,13 @@ def analyze_market():
             rsi = get_rsi(df['Close']).iloc[-1]
             high_20d = df['High'].iloc[-21:-1].max()
 
-            # LOGICA ICEBERG E OPTION SWEEP
-            # Sweep = Volumi > 250% | Iceberg = Volumi > 150%
+            # --- LOGICA DI RILEVAMENTO ---
             if vol_attuale > (vol_medio * 1.5) and price > high_20d and rsi < 68:
                 
+                # Calcolo SCORE ICEBERG (60-100)
+                score = min(100, int((vol_attuale / vol_medio) * 40))
+                
+                # Definizione urgenza (Sweep se vol > 250%)
                 is_sweep = vol_attuale > (vol_medio * 2.5)
                 stop_loss = price * 0.95
                 
@@ -74,32 +78,33 @@ def analyze_market():
                 
                 # Commento AI Dinamico
                 if is_sweep:
-                    analisi_ai = "URGENZA ISTITUZIONALE. Qualcuno sta spazzando il book. Alta probabilità di momentum."
+                    analisi_ai = "URGENZA ESTREMA. Qualcuno sta 'pulendo' il book. Momentum altissimo."
                 elif rsi < 55:
-                    analisi_ai = "Accumulazione sana all'inizio del trend. Rischio/Rendimento ottimo."
+                    analisi_ai = "Accumulazione iniziale. Ottimo punto di ingresso per rischio/rendimento."
                 else:
-                    analisi_ai = "Trend confermato ma in accelerazione. Usa stop loss rigorosa."
+                    analisi_ai = "Breakout confermato. Titolo in accelerazione, segui il trend."
 
                 segnali_buy.append(
                     f"{header}\n"
                     f"Ticker: **{ticker}**\n"
                     f"💰 Prezzo: ${price:.2f}\n"
+                    f"📈 **SCORE ICEBERG: {score}/100**\n"
                     f"🔥 Volumi: +{int((vol_attuale/vol_medio-1)*100)}%\n"
                     f"📊 RSI: {rsi:.1f}\n"
                     f"🛡️ **Stop Loss: ${stop_loss:.2f}**\n"
                     f"🤖 _Analisi AI: {analisi_ai}_"
                 )
 
-            # LOGICA VENDITA (Watchlist personale)
+            # LOGICA VENDITA (Watchlist)
             if ticker in watchlist_vendita and price < sma20:
                 segnali_sell.append(f"⚠️ **EXIT ALERT**: {ticker}\nPrezzo: ${price:.2f} (Sotto SMA20)")
 
-            time.sleep(0.1) # Protezione anti-ban Yahoo
+            time.sleep(0.1) # Evita il blocco da parte di Yahoo
 
         except Exception:
             continue
 
-    # INVIO REPORT A TELEGRAM
+    # --- INVIO MESSAGGI ---
     base_url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     
     if segnali_buy:
@@ -107,11 +112,11 @@ def analyze_market():
             requests.post(base_url, json={"chat_id": CHAT_ID, "text": s, "parse_mode": "Markdown"})
     
     if segnali_sell:
-        text = "📢 **ALERT VENDITA (Portafoglio)** 📢\n\n" + "\n\n".join(segnali_sell)
+        text = "📢 **ALERT VENDITA (Monitoraggio)** 📢\n\n" + "\n\n".join(segnali_sell)
         requests.post(base_url, json={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
 
     if not segnali_buy and not segnali_sell:
-        requests.post(base_url, json={"chat_id": CHAT_ID, "text": "☕ *Scansione 150 titoli*: Nessuna anomalia istituzionale rilevata.", "parse_mode": "Markdown"})
+        requests.post(base_url, json={"chat_id": CHAT_ID, "text": "☕ *Scansione completata*: Nessun movimento istituzionale rilevato.", "parse_mode": "Markdown"})
 
 if __name__ == "__main__":
     analyze_market()
