@@ -70,7 +70,26 @@ def analyze_stock(ticker, is_full_scan):
 
 def main():
     now = datetime.datetime.now()
-    if now.hour in ORARI_CACCIA and now.minute < 25:
+    # Giorno della settimana (0=Lunedì, 5=Sabato, 6=Domenica)
+    weekday = now.weekday()
+    # Ora in formato UTC (GitHub usa questa)
+    ora_utc = now.hour
+    minuto_utc = now.minute
+
+    # 1. STOP NEL WEEKEND (Sabato e Domenica)
+    if weekday > 4:
+        print("Mercato chiuso (Weekend).")
+        return
+
+    # 2. STOP FUORI ORARIO BORSA USA (Tradotto in UTC per l'ora solare)
+    # Apertura 15:30 ITA = 14:30 UTC | Chiusura 22:00 ITA = 21:00 UTC
+    if ora_utc < 14 or (ora_utc >= 21 and minuto_utc > 10):
+        # Permettiamo solo una piccola finestra dopo la chiusura per l'ultimo report
+        print("Mercato chiuso (Fuori orario).")
+        return
+
+    # --- Se passa i filtri, procedi con la logica normale ---
+    if ora_utc in ORARI_CACCIA and minuto_utc < 25:
         mode, tickers = "CACCIA", list(set(FULL_WATCHLIST + MY_PORTFOLIO))
         head = f"🚀 *SCANSIONE CACCIA* ({now.strftime('%H:%M')} UTC)"
     else:
@@ -83,8 +102,5 @@ def main():
         time.sleep(0.3)
 
     if alert_count == 0:
-        msg = "Nessun movimento istituzionale." if mode == "CACCIA" else "Portafoglio sotto controllo, nessun segnale."
-        send_telegram(f"{head}\n✅ *OK*: {msg}")
-
-if __name__ == "__main__":
-    main()
+        msg = "Nessun movimento rilevato." if mode == "CACCIA" else "Portafoglio OK."
+        send_telegram(f"{head}\n✅ {msg}")
