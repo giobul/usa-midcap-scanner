@@ -85,13 +85,13 @@ def analyze_stock(ticker, is_full_scan):
 
 def main():
     now = datetime.datetime.now()
-    if now.weekday() > 7: return 
-    if now.hour < 14 or (now.hour >= 21 and now.minute > 15): return
+    # if now.weekday() > 4: return  <-- DISATTIVATO PER TEST
+    # if now.hour < 14 or (now.hour >= 21 and now.minute > 15): return <-- DISATTIVATO PER TEST
 
-    if True: 
+    if True: # FORZA CACCIA PER TEST
         tickers = list(set(FULL_WATCHLIST + MY_PORTFOLIO))
         mode = "CACCIA"
-        head = f"🚀 *SCANSIONE CACCIA 150* ({now.strftime('%H:%M')} UTC)"
+        head = f"🚀 *TEST FUNZIONAMENTO* ({now.strftime('%H:%M')} UTC)"
     else:
         tickers = MY_PORTFOLIO
         mode = "DIFESA"
@@ -102,12 +102,4 @@ def main():
         if analyze_stock(t, mode == "CACCIA"): alert_count += 1
         time.sleep(0.3)
 
-    # Conferma di scansione (Sempre attiva in modalità CACCIA)
-    if mode == "CACCIA":
-        if alert_count == 0:
-            send_telegram(f"{head}\n✅ Nessun movimento rilevato.")
-        else:
-            send_telegram(f"{head}\n🏁 Trovati {alert_count} segnali.")
-
-if __name__ == "__main__":
-    main()
+    send_telegram(f"{head}\n🏁 Test completato. Trovati {alert_count} segnali.")
