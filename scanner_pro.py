@@ -85,10 +85,10 @@ def analyze_stock(ticker, is_full_scan):
 
 def main():
     now = datetime.datetime.now()
-    if now.weekday() > 4: return 
+    if now.weekday() > 7: return 
     if now.hour < 14 or (now.hour >= 21 and now.minute > 15): return
 
-    if now.hour in ORARI_CACCIA and now.minute < 35: 
+    if True: 
         tickers = list(set(FULL_WATCHLIST + MY_PORTFOLIO))
         mode = "CACCIA"
         head = f"🚀 *SCANSIONE CACCIA 150* ({now.strftime('%H:%M')} UTC)"
