@@ -1,36 +1,30 @@
-import yfinance as yf
-import pandas as pd
-import datetime
 import os
 import requests
 import time
 
-# --- CONFIGURAZIONE ---
-MY_PORTFOLIO = ["STNE"]
-ORARI_CACCIA = [15, 18, 20] 
-
-def send_telegram(message):
+def send_telegram(message, silent=False):
     token = os.getenv("TELEGRAM_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
     if not token or not chat_id: return
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {"chat_id": chat_id, "text": message, "parse_mode": "Markdown"}
+    payload = {
+        "chat_id": chat_id, 
+        "text": message, 
+        "parse_mode": "Markdown",
+        "disable_notification": silent
+    }
     requests.post(url, json=payload)
 
-def calculate_rsi(prices, period=14):
-    delta = prices.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
-
 def main():
-    # --- MESSAGGIO DI TEST ---
-    send_telegram("🔔 TEST: Il sistema è collegato correttamente! Se senti questo suono, la configurazione è OK.")
+    # TEST 1: Messaggio Silenzioso (Tipo ICEBERG)
+    print("Inviando messaggio silenzioso...")
+    send_telegram("🧊 TEST SILENZIOSO: Questo messaggio non dovrebbe suonare.", silent=True)
     
-    now = datetime.datetime.now()
-    # (Il resto del codice di analisi segue qui sotto...)
-    print("Test completato con successo.")
+    time.sleep(10) # Aspettiamo 10 secondi
+    
+    # TEST 2: Messaggio con Suono (Tipo EXIT)
+    print("Inviando messaggio con ALLERTA...")
+    send_telegram("🚨 TEST SVEGLIA: Questo messaggio DEVE SUONARE FORTE! 🚨", silent=False)
 
 if __name__ == "__main__":
     main()
