@@ -5,9 +5,9 @@ import os
 import requests
 import time
 
-# --- 1. CONFIGURAZIONE PORTAFOGLIO E ORARI ---
+# --- 1. CONFIGURAZIONE ---
 MY_PORTFOLIO = ["STNE"]
-ORARI_CACCIA = [15, 18, 20] # 16:00, 19:00, 21:00 italiane
+ORARI_CACCIA = [15, 18, 20] # 16:00, 19:00, 21:00 ITA
 
 def send_telegram(message):
     token = os.getenv("TELEGRAM_TOKEN")
@@ -36,35 +36,37 @@ def analyze_stock(ticker, is_full_scan):
         df['RSI'] = calculate_rsi(df['Close'])
         rsi = float(df['RSI'].iloc[-1])
         
-        # Calcolo supporto e distanza
         support_level = float(df['Low'].tail(50).min())
         distanza_supporto = ((cp - support_level) / support_level) * 100
-        is_at_support = distanza_supporto <= 1.5 # Filtro base per la caccia
 
-        # --- AZIONE A: DIFESA (VENDITA STNE) ---
+        # --- AZIONE A: DIFESA (STNE) ---
         if ticker in MY_PORTFOLIO and rsi > 75:
-            headers = ["🚨 ALLERTA VENDITA 1/3", "🔊 ALLERTA VENDITA 2/3", "⚠️ ALLERTA FINALE 3/3"]
-            for h in headers:
-                send_telegram(f"*{h}*\n**{ticker}** in ipercomprato! RSI: {rsi:.2f}\nPrezzo: ${cp:.2f}")
+            for h in ["🚨 VENDITA 1/3", "🔊 VENDITA 2/3", "⚠️ FINALE 3/3"]:
+                send_telegram(f"*{h}*\n**{ticker}** RSI: {rsi:.2f}\nPrezzo: ${cp:.2f}")
                 time.sleep(5)
             return True
 
-        # --- AZIONE B: CACCIA (ACCUMULO) ---
+        # --- AZIONE B: CACCIA CON ICEBERG SCORE ---
         mult = 1.5 if is_full_scan else 2.5
-        if vol > (avg_vol * mult) and is_at_support:
+        if vol > (avg_vol * mult) and distanza_supporto <= 1.5:
+            # Calcolo Score (1-10) basato sul moltiplicatore di volume
+            score = min(10, int((vol / avg_vol) * 1.5))
+            stars = "⭐" * (score // 2) if score > 1 else "🔹"
+            
             if vol > (avg_vol * 4.0):
-                # Semaforo Sweep: se entro l'1.5% è ancora buono
-                status_prezzo = "✅ **INGRESSO OTTIMALE (Vicino al Supporto)**" if distanza_supporto <= 1.5 else f"⚠️ **PREZZO IN FUGA (+{distanza_supporto:.1f}%)**"
-                tipo_segnale = "🔥 **SWEEP AGGRESSIVO**"
+                tipo = "🔥 **SWEEP AGGRESSIVO**"
+                status = "✅ **INGRESSO OTTIMALE**" if distanza_supporto <= 1.2 else "⚠️ **PREZZO IN FUGA**"
             else:
-                status_prezzo = "🧊 **ACCUMULO CALMO (Iceberg)**"
-                tipo_segnale = "INFO: Istituzionali presenti"
+                tipo = "🧊 **ICEBERG DETECTED**"
+                status = "⚖️ **ACCUMULO IN CORSO**"
 
-            msg = f"{tipo_segnale}: **{ticker}**\n"
-            msg += f"Prezzo: ${cp:.2f}\n"
-            msg += f"Volumi: {vol/avg_vol:.1f}x media\n"
-            msg += f"{status_prezzo}\n"
-            msg += f"🎯 Supporto a: ${support_level:.2f}"
+            msg = f"{tipo}: **{ticker}**\n"
+            msg += f"━━━━━━━━━━━━━━━\n"
+            msg += f"📊 **ICEBERG SCORE: {score}/10** {stars}\n"
+            msg += f"💰 Prezzo: ${cp:.2f}\n"
+            msg += f"📈 Volumi: {vol/avg_vol:.1f}x media\n"
+            msg += f"📍 Posizione: {status}\n"
+            msg += f"🎯 Supporto: ${support_level:.2f}"
             send_telegram(msg)
             return True
         return False
@@ -72,7 +74,7 @@ def analyze_stock(ticker, is_full_scan):
 
 def main():
     now = datetime.datetime.now()
-    if now.weekday() > 4: return # Fermo nel weekend
+    if now.weekday() > 4: return 
     if now.hour < 14 or (now.hour >= 21 and now.minute > 15): return
 
     watchlist = [
