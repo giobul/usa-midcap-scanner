@@ -84,22 +84,13 @@ def analyze_stock(ticker, is_full_scan):
     except: return False
 
 def main():
-    now = datetime.datetime.now()
-    # if now.weekday() > 4: return  <-- DISATTIVATO PER TEST
-    # if now.hour < 14 or (now.hour >= 21 and now.minute > 15): return <-- DISATTIVATO PER TEST
+    print("Inizio Test Telegram...")
+    # Forza l'invio di un messaggio di test immediato
+    try:
+        send_telegram("🔔 TEST DI CONNESSIONE: Se leggi questo, il Bot funziona!")
+        print("Messaggio inviato con successo!")
+    except Exception as e:
+        print(f"Errore durante l'invio: {e}")
 
-    if True: # FORZA CACCIA PER TEST
-        tickers = list(set(FULL_WATCHLIST + MY_PORTFOLIO))
-        mode = "CACCIA"
-        head = f"🚀 *TEST FUNZIONAMENTO* ({now.strftime('%H:%M')} UTC)"
-    else:
-        tickers = MY_PORTFOLIO
-        mode = "DIFESA"
-        head = f"🛡️ *CHECK DIFESA* ({now.strftime('%H:%M')} UTC)"
-
-    alert_count = 0
-    for t in tickers:
-        if analyze_stock(t, mode == "CACCIA"): alert_count += 1
-        time.sleep(0.3)
-
-    send_telegram(f"{head}\n🏁 Test completato. Trovati {alert_count} segnali.")
+if __name__ == "__main__":
+    main()
