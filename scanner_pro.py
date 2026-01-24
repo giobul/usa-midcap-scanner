@@ -1,27 +1,19 @@
 import os
 import requests
-import time
 
-def send_telegram(message, silent=False):
+def main():
     token = os.getenv("TELEGRAM_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
-    if not token or not chat_id: return
+    
+    # Test base senza parametri extra
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {
         "chat_id": chat_id, 
-        "text": message, 
-        "parse_mode": "Markdown",
-        "disable_notification": silent
+        "text": "🚨 TEST FINALE: Se leggi questo, il collegamento funziona!"
     }
-    requests.post(url, json=payload)
+    
+    r = requests.post(url, json=payload)
+    print(f"Stato invio: {r.status_code}") # Questo apparirà nei log di GitHub
 
-def main():
-    # TEST SILENZIOSO
-    send_telegram("🧊 TEST SILENZIOSO (Iceberg)", silent=True)
-    
-    time.sleep(5)
-    
-    # TEST SVEGLIA (Invia 3 messaggi per forzare il suono)
-    for i in range(3):
-        send_telegram(f"🚨🚨 ALLARME VENDITA TEST {i+1} 🚨🚨", silent=False)
-        time.sleep(1)
+if __name__ == "__main__":
+    main()
