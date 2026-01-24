@@ -6,22 +6,16 @@ import requests
 import time
 
 # --- 1. CONFIGURAZIONE ---
-MY_PORTFOLIO = ["STNE"] # I tuoi titoli
-ORARI_CACCIA = [14, 17, 20] # 15:00, 18:00, 21:00 Italiane
+MY_PORTFOLIO = ["STNE"]
+ORARI_CACCIA = [15, 18, 20] # 16:00, 19:00, 21:00 ITA
 
-FULL_WATCHLIST = [
-    "STNE", "NU", "PAGS", "MELI", "SOFI", "UPST", "AFRM", "HOOD", "SQ", "PYPL", "COIN", "XP", "BBD", "ITUB", "GS", "MS", "TOST", "FLYR", "BILL", "ADYEN",
-    "VRT", "ANET", "APP", "PSTG", "SMCI", "LUMN", "PLTR", "MSTR", "NVDA", "AMD", "AVGO", "ARM", "MRVL", "ALAB", "AMBA", "AEIS", "BSX", "TSM", "ASML", "KLAC", "LRCX", "MU", "TDC", "HPE", "DELL",
-    "CRWD", "NET", "OKTA", "ZS", "DDOG", "SNOW", "PANW", "FTNT", "S", "PATH", "IOT", "GTLB", "TEAM", "WDAY", "NOW", "MDB", "ESTC", "SPLK", "ZEN", "APPS", "DOCU", "TWLO", "GDDY", "ADBE", "CRM",
-    "SHOP", "SE", "U", "RBLX", "DUOL", "MNSO", "DASH", "UBER", "LYFT", "ABNB", "BKNG", "CPNG", "RVLV", "FIGS", "PINS", "SNAP", "ROKU", "ETSY", "DKNG", "SKLZ",
-    "CLOV", "MEDP", "HALO", "KRYS", "VRTX", "AMGN", "TDOC", "RXRX", "ILMN", "EXAS", "CRSP", "BEAM", "NTLA", "EDIT", "mRNA", "BNTX", "SAVA", "CERE", "BIIB", "REGN",
-    "ON", "TER", "ENTG", "WOLF", "LSCC", "QRVO", "SWKS", "MP", "INDI", "POWI", "RMBS", "MTSI", "SIAB", "MXL", "DIOD",
-    "TSLA", "RIVN", "LCID", "NIO", "XPEV", "LI", "FSLR", "ENPH", "SEDG", "RUN", "CHPT", "BLNK", "PLUG", "SPCE", "RKLB", "BOWL", "QS", "PSNY", "NKLA", "BE",
-    "MARA", "RIOT", "CLSK", "IREN", "WULF", "HIVE", "BITF", "BTBT", "CORZ", "CIFR",
-    "CELH", "WING", "BOOT", "LULU", "ONON", "SKX", "DECK", "BIRK", "ELF", "MNST", "SBUX", "CMG", "SHAK", "CAVA"
-]
+# DATI PER CHIAMATA
+PHONE_NUMBER = "39XXXXXXXXXX" # Sostituisci con il tuo numero
+CALL_API_KEY = os.getenv("CALL_API_KEY") 
 
-# --- 2. FUNZIONI ---
+FULL_WATCHLIST = ["STNE", "NU", "PAGS", "MELI", "SOFI", "UPST", "AFRM", "HOOD", "SQ", "PYPL", "COIN", "XP", "BBD", "ITUB", "GS", "MS", "TOST", "FLYR", "BILL", "ADYEN", "VRT", "ANET", "APP", "PSTG", "SMCI", "LUMN", "PLTR", "MSTR", "NVDA", "AMD", "AVGO", "ARM", "MRVL", "ALAB", "AMBA", "AEIS", "BSX", "TSM", "ASML", "KLAC", "LRCX", "MU", "TDC", "HPE", "DELL", "CRWD", "NET", "OKTA", "ZS", "DDOG", "SNOW", "PANW", "FTNT", "S", "PATH", "IOT", "GTLB", "TEAM", "WDAY", "NOW", "MDB", "ESTC", "SPLK", "ZEN", "APPS", "DOCU", "TWLO", "GDDY", "ADBE", "CRM", "SHOP", "SE", "U", "RBLX", "DUOL", "MNSO", "DASH", "UBER", "LYFT", "ABNB", "BKNG", "CPNG", "RVLV", "FIGS", "PINS", "SNAP", "ROKU", "ETSY", "DKNG", "SKLZ", "CLOV", "MEDP", "HALO", "KRYS", "VRTX", "AMGN", "TDOC", "RXRX", "ILMN", "EXAS", "CRSP", "BEAM", "NTLA", "EDIT", "mRNA", "BNTX", "SAVA", "CERE", "BIIB", "REGN", "ON", "TER", "ENTG", "WOLF", "LSCC", "QRVO", "SWKS", "MP", "INDI", "POWI", "RMBS", "MTSI", "SIAB", "MXL", "DIOD", "TSLA", "RIVN", "LCID", "NIO", "XPEV", "LI", "FSLR", "ENPH", "SEDG", "RUN", "CHPT", "BLNK", "PLUG", "SPCE", "RKLB", "BOWL", "QS", "PSNY", "NKLA", "BE", "MARA", "RIOT", "CLSK", "IREN", "WULF", "HIVE", "BITF", "BTBT", "CORZ", "CIFR", "CELH", "WING", "BOOT", "LULU", "ONON", "SKX", "DECK", "BIRK", "ELF", "MNST", "SBUX", "CMG", "SHAK", "CAVA"]
+
+# --- 2. FUNZIONI DI SERVIZIO ---
 def send_telegram(message):
     token = os.getenv("TELEGRAM_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
@@ -30,6 +24,13 @@ def send_telegram(message):
     payload = {"chat_id": chat_id, "text": message, "parse_mode": "Markdown"}
     requests.post(url, json=payload)
 
+def make_call(ticker, reason):
+    if not CALL_API_KEY: return
+    text = f"Attenzione! Segnale di {reason} su {ticker}. Controlla Telegram."
+    url = f"https://api.callmebot.com/start.php?user={PHONE_NUMBER}&text={text}&apikey={CALL_API_KEY}"
+    try: requests.get(url, timeout=10)
+    except: pass
+
 def calculate_rsi(prices, period=14):
     delta = prices.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
@@ -37,9 +38,10 @@ def calculate_rsi(prices, period=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
+# --- 3. CORE ANALISI ---
 def analyze_stock(ticker, is_full_scan):
     try:
-        df = yf.download(ticker, period="3d", interval="15m", progress=False)
+        df = yf.download(ticker, period="5d", interval="15m", progress=False)
         if df.empty: return False
 
         cp = float(df['Close'].iloc[-1])
@@ -49,51 +51,50 @@ def analyze_stock(ticker, is_full_scan):
         df['RSI'] = calculate_rsi(df['Close'])
         rsi = float(df['RSI'].iloc[-1])
         
+        support_level = float(df['Low'].tail(100).min())
+        is_at_support = cp <= (support_level * 1.015) 
+        
         found = False
 
-        # --- LOGICA EXIT (PORTFOLIO) ---
+        # 🛡️ EXIT ALERT: Messaggio + Chiamata ⚠️
         if ticker in MY_PORTFOLIO and rsi > 75:
-            send_telegram(f"⚠️ *EXIT ALERT*: {ticker}\nRSI: {rsi:.2f} (Eccesso)\nPrezzo: ${cp:.2f}")
+            send_telegram(f"⚠️ *EXIT ALERT*: {ticker}\nRILEVATO ECCESSO RSI: {rsi:.2f}\nPrezzo: ${cp:.2f}")
+            make_call(ticker, "VENDITA")
             found = True
 
-        # --- LOGICA CACCIA (ICEBERG/SWEEP) ---
+        # 🚀 SCANSIONE VOLUMI
         mult = 1.5 if is_full_scan else 2.5
         if vol > (avg_vol * mult):
-            trend = "📈" if cp > lp else "📉"
-            stato = "IN RISALITA" if cp > lp else "IN COSTRUZIONE (Accumulo sui minimi)"
-            label = "🔥 *OPTION SWEEP*" if vol > (avg_vol * 2.5) else "🧊 *ICEBERG DETECTED*"
+            trend_emoji = "📈" if cp > lp else "📉"
             
-            send_telegram(f"{label} su *{ticker}*\nStato: {stato} {trend}\nPrezzo: ${cp:.2f}\nVol: {vol:.0f} (vs Avg: {avg_vol:.0f})\nRSI: {rsi:.2f}")
+            # OPTION SWEEP: Messaggio + Chiamata 🔥
+            if vol > (avg_vol * 2.5):
+                label = "🔥 *OPTION SWEEP*"
+                send_telegram(f"{label} su *{ticker}*\nStato: RISALITA AGGRESSIVA {trend_emoji}\nPrezzo: ${cp:.2f}\nVol: {vol:.0f}\nRSI: {rsi:.2f}")
+                make_call(ticker, "URGENZA ISTITUZIONALE")
+            
+            # ICEBERG: Solo Messaggio 🧊
+            else:
+                label = "🧊 *ICEBERG DETECTED*"
+                extra_tip = "\n🎯 *LIVELLO OTTIMALE (Vicino Supporto)*" if (is_at_support and cp <= lp) else ""
+                send_telegram(f"{label} su *{ticker}*\nStato: {'RISALITA' if cp > lp else 'ACCUMULO'} {trend_emoji}\nPrezzo: ${cp:.2f}\nRSI: {rsi:.2f}{extra_tip}")
+            
             found = True
         return found
     except: return False
 
 def main():
     now = datetime.datetime.now()
-    # Giorno della settimana (0=Lunedì, 5=Sabato, 6=Domenica)
-    weekday = now.weekday()
-    # Ora in formato UTC (GitHub usa questa)
-    ora_utc = now.hour
-    minuto_utc = now.minute
+    if now.weekday() > 4: return 
+    if now.hour < 14 or (now.hour >= 21 and now.minute > 15): return
 
-    # 1. STOP NEL WEEKEND (Sabato e Domenica)
-    if weekday > 4:
-        print("Mercato chiuso (Weekend).")
-        return
-
-    # 2. STOP FUORI ORARIO BORSA USA (Tradotto in UTC per l'ora solare)
-    # Apertura 15:30 ITA = 14:30 UTC | Chiusura 22:00 ITA = 21:00 UTC
-    if ora_utc < 14 or (ora_utc >= 21 and minuto_utc > 10):
-        # Permettiamo solo una piccola finestra dopo la chiusura per l'ultimo report
-        print("Mercato chiuso (Fuori orario).")
-        return
-
-    # --- Se passa i filtri, procedi con la logica normale ---
-    if ora_utc in ORARI_CACCIA and minuto_utc < 25:
-        mode, tickers = "CACCIA", list(set(FULL_WATCHLIST + MY_PORTFOLIO))
-        head = f"🚀 *SCANSIONE CACCIA* ({now.strftime('%H:%M')} UTC)"
+    if now.hour in ORARI_CACCIA and now.minute < 35: 
+        tickers = list(set(FULL_WATCHLIST + MY_PORTFOLIO))
+        mode = "CACCIA"
+        head = f"🚀 *SCANSIONE CACCIA 150* ({now.strftime('%H:%M')} UTC)"
     else:
-        mode, tickers = "DIFESA", MY_PORTFOLIO
+        tickers = MY_PORTFOLIO
+        mode = "DIFESA"
         head = f"🛡️ *CHECK DIFESA* ({now.strftime('%H:%M')} UTC)"
 
     alert_count = 0
@@ -101,6 +102,12 @@ def main():
         if analyze_stock(t, mode == "CACCIA"): alert_count += 1
         time.sleep(0.3)
 
-    if alert_count == 0:
-        msg = "Nessun movimento rilevato." if mode == "CACCIA" else "Portafoglio OK."
-        send_telegram(f"{head}\n✅ {msg}")
+    # Conferma di scansione (Sempre attiva in modalità CACCIA)
+    if mode == "CACCIA":
+        if alert_count == 0:
+            send_telegram(f"{head}\n✅ Nessun movimento rilevato.")
+        else:
+            send_telegram(f"{head}\n🏁 Trovati {alert_count} segnali.")
+
+if __name__ == "__main__":
+    main()
