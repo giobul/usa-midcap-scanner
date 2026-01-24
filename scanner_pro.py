@@ -11,15 +11,15 @@ def send_telegram(message):
     requests.post(url, json=payload)
 
 def main():
-    print("Inizio test raffica di messaggi...")
+    print("Inizio test martellamento distanziato...")
     
-    # Simuliamo l'allerta di vendita
-    alert_text = "🚨🚨 **TEST VENDITA URGENTE** 🚨🚨\nQuesto è un test del segnale EXIT!"
+    alert_text = "🚨🚨 **VENDITA STNE** 🚨🚨\nTest segnale EXIT (3 avvisi distanziati)"
     
-    for i in range(5):
-        send_telegram(f"{alert_text} (Messaggio {i+1}/5)")
-        print(f"Inviato messaggio {i+1}")
-        time.sleep(1.5) # Pausa breve per far suonare il telefono più volte
+    for i in range(3):
+        send_telegram(f"{alert_text} [{i+1}/3]")
+        print(f"Inviato messaggio {i+1}, ora aspetto 5 secondi...")
+        if i < 2: # Non aspettare dopo l'ultimo messaggio
+            time.sleep(5) 
 
 if __name__ == "__main__":
     main()
