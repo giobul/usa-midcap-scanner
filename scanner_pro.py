@@ -10,7 +10,7 @@ MY_PORTFOLIO = ["STNE"]
 ORARI_CACCIA = [15, 18, 20] # 16:00, 19:00, 21:00 ITA
 
 # DATI PER CHIAMATA
-PHONE_NUMBER = "39XXXXXXXXXX" # Sostituisci con il tuo numero
+PHONE_NUMBER = "39XXXXXXXXXX" # Sostituisci col tuo numero
 CALL_API_KEY = os.getenv("CALL_API_KEY") 
 
 FULL_WATCHLIST = ["STNE", "NU", "PAGS", "MELI", "SOFI", "UPST", "AFRM", "HOOD", "SQ", "PYPL", "COIN", "XP", "BBD", "ITUB", "GS", "MS", "TOST", "FLYR", "BILL", "ADYEN", "VRT", "ANET", "APP", "PSTG", "SMCI", "LUMN", "PLTR", "MSTR", "NVDA", "AMD", "AVGO", "ARM", "MRVL", "ALAB", "AMBA", "AEIS", "BSX", "TSM", "ASML", "KLAC", "LRCX", "MU", "TDC", "HPE", "DELL", "CRWD", "NET", "OKTA", "ZS", "DDOG", "SNOW", "PANW", "FTNT", "S", "PATH", "IOT", "GTLB", "TEAM", "WDAY", "NOW", "MDB", "ESTC", "SPLK", "ZEN", "APPS", "DOCU", "TWLO", "GDDY", "ADBE", "CRM", "SHOP", "SE", "U", "RBLX", "DUOL", "MNSO", "DASH", "UBER", "LYFT", "ABNB", "BKNG", "CPNG", "RVLV", "FIGS", "PINS", "SNAP", "ROKU", "ETSY", "DKNG", "SKLZ", "CLOV", "MEDP", "HALO", "KRYS", "VRTX", "AMGN", "TDOC", "RXRX", "ILMN", "EXAS", "CRSP", "BEAM", "NTLA", "EDIT", "mRNA", "BNTX", "SAVA", "CERE", "BIIB", "REGN", "ON", "TER", "ENTG", "WOLF", "LSCC", "QRVO", "SWKS", "MP", "INDI", "POWI", "RMBS", "MTSI", "SIAB", "MXL", "DIOD", "TSLA", "RIVN", "LCID", "NIO", "XPEV", "LI", "FSLR", "ENPH", "SEDG", "RUN", "CHPT", "BLNK", "PLUG", "SPCE", "RKLB", "BOWL", "QS", "PSNY", "NKLA", "BE", "MARA", "RIOT", "CLSK", "IREN", "WULF", "HIVE", "BITF", "BTBT", "CORZ", "CIFR", "CELH", "WING", "BOOT", "LULU", "ONON", "SKX", "DECK", "BIRK", "ELF", "MNST", "SBUX", "CMG", "SHAK", "CAVA"]
@@ -56,41 +56,50 @@ def analyze_stock(ticker, is_full_scan):
         
         found = False
 
-        # 🛡️ EXIT ALERT: Messaggio + Chiamata ⚠️
         if ticker in MY_PORTFOLIO and rsi > 75:
             send_telegram(f"⚠️ *EXIT ALERT*: {ticker}\nRILEVATO ECCESSO RSI: {rsi:.2f}\nPrezzo: ${cp:.2f}")
             make_call(ticker, "VENDITA")
             found = True
 
-        # 🚀 SCANSIONE VOLUMI
         mult = 1.5 if is_full_scan else 2.5
         if vol > (avg_vol * mult):
             trend_emoji = "📈" if cp > lp else "📉"
-            
-            # OPTION SWEEP: Messaggio + Chiamata 🔥
             if vol > (avg_vol * 2.5):
                 label = "🔥 *OPTION SWEEP*"
                 send_telegram(f"{label} su *{ticker}*\nStato: RISALITA AGGRESSIVA {trend_emoji}\nPrezzo: ${cp:.2f}\nVol: {vol:.0f}\nRSI: {rsi:.2f}")
                 make_call(ticker, "URGENZA ISTITUZIONALE")
-            
-            # ICEBERG: Solo Messaggio 🧊
             else:
                 label = "🧊 *ICEBERG DETECTED*"
                 extra_tip = "\n🎯 *LIVELLO OTTIMALE (Vicino Supporto)*" if (is_at_support and cp <= lp) else ""
                 send_telegram(f"{label} su *{ticker}*\nStato: {'RISALITA' if cp > lp else 'ACCUMULO'} {trend_emoji}\nPrezzo: ${cp:.2f}\nRSI: {rsi:.2f}{extra_tip}")
-            
             found = True
         return found
     except: return False
 
 def main():
-    print("Inizio Test Telegram...")
-    # Forza l'invio di un messaggio di test immediato
-    try:
-        send_telegram("🔔 TEST DI CONNESSIONE: Se leggi questo, il Bot funziona!")
-        print("Messaggio inviato con successo!")
-    except Exception as e:
-        print(f"Errore durante l'invio: {e}")
+    now = datetime.datetime.now()
+    if now.weekday() > 4: return 
+    if now.hour < 14 or (now.hour >= 21 and now.minute > 15): return
+
+    if now.hour in ORARI_CACCIA and now.minute < 35: 
+        tickers = list(set(FULL_WATCHLIST + MY_PORTFOLIO))
+        mode = "CACCIA"
+        head = f"🚀 *SCANSIONE CACCIA 150* ({now.strftime('%H:%M')} UTC)"
+    else:
+        tickers = MY_PORTFOLIO
+        mode = "DIFESA"
+        head = f"🛡️ *CHECK DIFESA* ({now.strftime('%H:%M')} UTC)"
+
+    alert_count = 0
+    for t in tickers:
+        if analyze_stock(t, mode == "CACCIA"): alert_count += 1
+        time.sleep(0.3)
+
+    if mode == "CACCIA":
+        if alert_count == 0:
+            send_telegram(f"{head}\n✅ Nessun movimento rilevato.")
+        else:
+            send_telegram(f"{head}\n🏁 Trovati {alert_count} segnali.")
 
 if __name__ == "__main__":
     main()
