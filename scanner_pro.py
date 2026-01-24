@@ -5,9 +5,9 @@ import os
 import requests
 import time
 
-# --- 1. CONFIGURAZIONE ---
+# --- 1. CONFIGURAZIONE PORTAFOGLIO E ORARI ---
 MY_PORTFOLIO = ["STNE"]
-ORARI_CACCIA = [15, 18, 20] # 16:00, 19:00, 21:00 ITA
+ORARI_CACCIA = [15, 18, 20] # 16:00, 19:00, 21:00 italiane
 
 def send_telegram(message):
     token = os.getenv("TELEGRAM_TOKEN")
@@ -36,25 +36,35 @@ def analyze_stock(ticker, is_full_scan):
         df['RSI'] = calculate_rsi(df['Close'])
         rsi = float(df['RSI'].iloc[-1])
         
+        # Calcolo supporto e distanza
         support_level = float(df['Low'].tail(50).min())
-        is_at_support = cp <= (support_level * 1.015) 
+        distanza_supporto = ((cp - support_level) / support_level) * 100
+        is_at_support = distanza_supporto <= 1.5 # Filtro base per la caccia
 
-        # --- DIFESA (VENDITA STNE) ---
+        # --- AZIONE A: DIFESA (VENDITA STNE) ---
         if ticker in MY_PORTFOLIO and rsi > 75:
             headers = ["🚨 ALLERTA VENDITA 1/3", "🔊 ALLERTA VENDITA 2/3", "⚠️ ALLERTA FINALE 3/3"]
             for h in headers:
-                send_telegram(f"*{h}*\n**{ticker}** RSI: {rsi:.2f}\nPrezzo: ${cp:.2f}")
+                send_telegram(f"*{h}*\n**{ticker}** in ipercomprato! RSI: {rsi:.2f}\nPrezzo: ${cp:.2f}")
                 time.sleep(5)
             return True
 
-        # --- CACCIA (ICEBERG/SWEEP) ---
+        # --- AZIONE B: CACCIA (ACCUMULO) ---
         mult = 1.5 if is_full_scan else 2.5
         if vol > (avg_vol * mult) and is_at_support:
             if vol > (avg_vol * 4.0):
-                msg = f"⚠️ **SWEEP AGGRESSIVO**: {ticker}\n"
+                # Semaforo Sweep: se entro l'1.5% è ancora buono
+                status_prezzo = "✅ **INGRESSO OTTIMALE (Vicino al Supporto)**" if distanza_supporto <= 1.5 else f"⚠️ **PREZZO IN FUGA (+{distanza_supporto:.1f}%)**"
+                tipo_segnale = "🔥 **SWEEP AGGRESSIVO**"
             else:
-                msg = f"🧊 **ICEBERG DETECTED**: {ticker}\n"
-            msg += f"Prezzo: ${cp:.2f}\nVolumi: {vol/avg_vol:.1f}x media\n🎯 *ZONA SUPPORTO*"
+                status_prezzo = "🧊 **ACCUMULO CALMO (Iceberg)**"
+                tipo_segnale = "INFO: Istituzionali presenti"
+
+            msg = f"{tipo_segnale}: **{ticker}**\n"
+            msg += f"Prezzo: ${cp:.2f}\n"
+            msg += f"Volumi: {vol/avg_vol:.1f}x media\n"
+            msg += f"{status_prezzo}\n"
+            msg += f"🎯 Supporto a: ${support_level:.2f}"
             send_telegram(msg)
             return True
         return False
@@ -62,26 +72,17 @@ def analyze_stock(ticker, is_full_scan):
 
 def main():
     now = datetime.datetime.now()
-    if now.weekday() > 4: return 
+    if now.weekday() > 4: return # Fermo nel weekend
     if now.hour < 14 or (now.hour >= 21 and now.minute > 15): return
 
-    # --- LISTA COMPLETA 150 TITOLI ---
     watchlist = [
-        # FINTECH & PAYMENTS
         "STNE", "NU", "PAGS", "MELI", "SOFI", "UPST", "AFRM", "HOOD", "SQ", "PYPL", "COIN", "FLYV", "MARQ", "BILL", "TOST",
-        # SAAS, CLOUD & AI
         "PLTR", "SNOW", "NET", "CRWD", "DDOG", "ZS", "OKTA", "MDB", "TEAM", "SHOP", "DOCU", "ZM", "PATH", "C3AI", "U", "AI", "IONQ", "ASAN", "SMARTS", "IOT", "SAMS", "DUOL", "FRSH", "BRZE", "ADBE", "CRM", "WDAY", "NOW",
-        # E-COMMERCE & CONSUMER
         "SE", "CPNG", "TME", "BILI", "PDUO", "JD", "BABA", "DASH", "ABNB", "UBER", "LYFT", "ETSG", "CHWY", "RVLV", "W", "ROKU", "PINS", "SNAP", "EBAY", "ETSY",
-        # SEMICONDUCTORS & HARDWARE
         "AMD", "NVDA", "INTC", "MU", "TXN", "TSM", "ASML", "AMAT", "LRCX", "KLAC", "SNPS", "CDNS", "ARM", "MRVL", "AVGO", "SMCI",
-        # EV, ENERGY & RENEWABLES
         "TSLA", "RIVN", "LCID", "F", "GM", "RACE", "STLA", "ENPH", "SEDG", "FSLR", "PLUG", "CHPT", "RUN", "QS", "NIO", "XPEV", "LI", "BE", "NEE",
-        # CRYPTO & BLOCKCHAIN
         "MARA", "RIOT", "CLSK", "HUT", "BITF", "MSTR", "COIN", "WULF", "CIFR", "ANY",
-        # TRAVEL, LEISURE & BETTING
         "DKNG", "PENN", "RCL", "CCL", "NCLH", "AAL", "DAL", "UAL", "LUV", "BKNG", "EXPE", "MAR", "HLT", "GENI", "RSI",
-        # GROWTH & OTHERS
         "META", "GOOGL", "AMZN", "MSFT", "AAPL", "NFLX", "DIS", "PARA", "WBD", "AMC", "GME", "BB", "NOK", "TLRY", "CGC", "ACB", "SNDL", "OPEN", "HOV", "BLND", "HRTX", "MNMD", "FSR", "NKLA", "WKHS", "RBLX", "DNA", "S", "FUBO", "SPCE", "PLBY", "SKLZ", "VERV", "BEAM", "EDIT", "CRSP", "NTLA", "MTCH", "BMBL", "YELP"
     ]
     
@@ -95,10 +96,10 @@ def main():
     found_any = False
     for t in tickers:
         if analyze_stock(t, mode == "CACCIA"): found_any = True
-        time.sleep(0.4) # Protezione rate limit
+        time.sleep(0.4)
 
     if mode == "CACCIA" and not found_any:
-        send_telegram(f"✅ Scansione delle {now.hour+1}:00 completata. Nessun accumulo istituzionale rilevato.")
+        send_telegram(f"✅ Scansione delle {now.hour+1}:00 completata. Nessun accumulo rilevante.")
 
 if __name__ == "__main__":
     main()
