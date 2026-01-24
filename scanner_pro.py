@@ -16,15 +16,12 @@ def send_telegram(message, silent=False):
     requests.post(url, json=payload)
 
 def main():
-    # TEST 1: Messaggio Silenzioso (Tipo ICEBERG)
-    print("Inviando messaggio silenzioso...")
-    send_telegram("🧊 TEST SILENZIOSO: Questo messaggio non dovrebbe suonare.", silent=True)
+    # TEST SILENZIOSO
+    send_telegram("🧊 TEST SILENZIOSO (Iceberg)", silent=True)
     
-    time.sleep(10) # Aspettiamo 10 secondi
+    time.sleep(5)
     
-    # TEST 2: Messaggio con Suono (Tipo EXIT)
-    print("Inviando messaggio con ALLERTA...")
-    send_telegram("🚨 TEST SVEGLIA: Questo messaggio DEVE SUONARE FORTE! 🚨", silent=False)
-
-if __name__ == "__main__":
-    main()
+    # TEST SVEGLIA (Invia 3 messaggi per forzare il suono)
+    for i in range(3):
+        send_telegram(f"🚨🚨 ALLARME VENDITA TEST {i+1} 🚨🚨", silent=False)
+        time.sleep(1)
