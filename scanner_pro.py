@@ -6,7 +6,7 @@ import requests
 import time
 
 # --- 1. CONFIGURAZIONE ---
-MY_PORTFOLIO = ["STNE"]
+MY_PORTFOLIO = ["STNE", "ETOR", "PATH", "RGTI", "QUBT", "DKNG", "AI", "BBAI"]
 ORARI_CACCIA = [15, 18, 20] # 16:00, 19:00, 21:00 ITA
 
 def send_telegram(message):
