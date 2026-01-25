@@ -85,8 +85,8 @@ def main():
         "TSLA", "RIVN", "LCID", "F", "GM", "RACE", "STLA", "ENPH", "SEDG", "FSLR", "PLUG", "CHPT", "RUN", "QS", "NIO", "XPEV", "LI", "BE", "NEE",
         "MARA", "RIOT", "CLSK", "HUT", "BITF", "MSTR", "COIN", "WULF", "CIFR", "ANY",
         "DKNG", "PENN", "RCL", "CCL", "NCLH", "AAL", "DAL", "UAL", "LUV", "BKNG", "EXPE", "MAR", "HLT", "GENI", "RSI",
-        "META", "GOOGL", "AMZN", "MSFT", "AAPL", "NFLX", "DIS", "PARA", "WBD", "AMC", "GME", "BB", "NOK", "TLRY", "CGC", "ACB", "SNDL", "OPEN", "HOV", "BLND", "HRTX", "MNMD", "FSR", "NKLA", "WKHS", "RBLX", "DNA", "S", "FUBO", "SPCE", "PLBY", "SKLZ", "VERV", "BEAM", "EDIT", "CRSP", "NTLA", "MTCH", "BMBL", "YELP"
-    ]
+        "META", "GOOGL", "AMZN", "MSFT", "AAPL", "NFLX", "DIS", "PARA", "WBD", "AMC", "GME", "BB", "NOK", "TLRY", "CGC", "ACB", "SNDL", "OPEN", "HOV", "BLND", "HRTX", "MNMD", "FSR", "NKLA", "WKHS", "RBLX", "DNA", "S", "FUBO", "SPCE", "PLBY", "SKLZ", "VERV", "BEAM", "EDIT", "CRSP", "NTLA", "MTCH", "BMBL", "YELP",
+        "SAVA", "VKTX", "IOVA", "BBIO", "MDGL"]
     
     if now.hour in ORARI_CACCIA and now.minute < 35:
         tickers = list(set(watchlist + MY_PORTFOLIO))
