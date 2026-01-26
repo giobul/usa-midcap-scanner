@@ -5,25 +5,18 @@ import os
 import requests
 import time
 
-# --- 1. CONFIGURAZIONE PORTAFOGLIO (EXIT & EMERGENZA) ---
-# I titoli che possiedi già. Il bot li controlla ogni 5 minuti.
+# --- 1. CONFIGURAZIONE ---
 MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "QUBT", "DKNG", "AI", "BBAI", "ADCT", "AGEN"]
-
-# Orari delle scansioni profonde su tutta la watchlist (16:00, 19:00, 21:00 ITA)
-ORARI_CACCIA = [15, 18, 20] 
+ORARI_CACCIA = [15, 18, 20] # 16:00, 19:00, 21:00 ITA
 
 def send_telegram(message):
     token = os.getenv("TELEGRAM_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
-    if not token or not chat_id: 
-        print("Errore: Token o Chat ID mancanti nei Secrets di GitHub")
-        return
+    if not token or not chat_id: return
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {"chat_id": chat_id, "text": message, "parse_mode": "Markdown"}
-    try: 
-        requests.post(url, json=payload, timeout=10)
-    except Exception as e:
-        print(f"Errore invio Telegram: {e}")
+    try: requests.post(url, json=payload, timeout=10)
+    except: pass
 
 def calculate_rsi(prices, period=14):
     delta = prices.diff()
@@ -34,7 +27,7 @@ def calculate_rsi(prices, period=14):
 
 def analyze_stock(ticker, is_full_scan):
     try:
-        # Download dati 15 minuti degli ultimi 5 giorni
+        # Download dati 15m (5 giorni)
         df = yf.download(ticker, period="5d", interval="15m", progress=False)
         if df.empty: return False
         
@@ -44,59 +37,59 @@ def analyze_stock(ticker, is_full_scan):
         df['RSI'] = calculate_rsi(df['Close'])
         rsi = float(df['RSI'].iloc[-1])
         
-        # Supporto basato sui minimi degli ultimi 50 periodi (circa 2 giorni)
+        # Analisi Tecnica
         support_level = float(df['Low'].tail(50).min())
         distanza_supporto = ((cp - support_level) / support_level) * 100
-
-        # --- AZIONE 1: EMERGENZA (🔴 ROTTURA SUPPORTO CON VOLUME) ---
-        if ticker in MY_PORTFOLIO and cp < support_level and vol > avg_vol:
-            send_telegram(f"🔴 **🚨 EMERGENZA: {ticker}**\n"
-                          f"━━━━━━━━━━━━━━━\n"
-                          f"⚠️ **ROTTURA SUPPORTO!**\n"
-                          f"💰 Prezzo attuale: ${cp:.2f}\n"
-                          f"📉 Supporto rotto: ${support_level:.2f}\n"
-                          f"📢 *Nota: Volume alto in uscita. Valuta chiusura.*")
-            return True
-
-        # --- AZIONE 2: DIFESA (🟡 PRESA PROFITTO RSI) ---
-        if ticker in MY_PORTFOLIO and rsi > 75:
-            send_telegram(f"🟡 **EXIT PROFIT: {ticker}**\n"
-                          f"━━━━━━━━━━━━━━━\n"
-                          f"📈 RSI: {rsi:.2f} (Ipercomprato)\n"
-                          f"💰 Prezzo attuale: ${cp:.2f}\n"
-                          f"✅ **Target raggiunto! Incassa il profitto.**")
-            return True
-
-        # --- AZIONE 3: CACCIA (🔵 ACCUMULO ISTITUZIONALE) ---
-        # Moltiplicatore volume: più basso durante la caccia per trovare più opportunità
+        
+        # --- STIMA FLOW MONETARIO (MILIONI DI $) ---
+        cash_flow = (vol * cp) / 1_000_000  # Valore della candela in Milioni
+        
+        # --- LOGICA SWEEP (CALL VS PUT) ---
         mult = 1.8 if is_full_scan else 3.5
-        if vol > (avg_vol * mult) and distanza_supporto <= 1.5:
+        
+        if vol > (avg_vol * mult):
             score = min(10, int((vol / avg_vol) * 1.5))
-            stars = "⭐" * (score // 2) if score > 1 else "🔹"
-            
-            tipo = "🔥 **SWEEP AGGRESSIVO**" if vol > (avg_vol * 4.0) else "🧊 **ICEBERG DETECTED**"
-            
-            msg = f"{tipo}: **{ticker}**\n"
-            msg += f"━━━━━━━━━━━━━━━\n"
-            msg += f"📊 **ICEBERG SCORE: {score}/10** {stars}\n"
-            msg += f"💰 Prezzo: ${cp:.2f}\n"
-            msg += f"📈 Volume: {vol/avg_vol:.1f}x media\n"
-            msg += f"🎯 Supporto breakout: ${support_level:.2f}"
-            send_telegram(msg)
+            stars = "⭐" * (score // 2)
+
+            # Caso A: Prezzo rompe il supporto = PUT SWEEP (Bearish)
+            if cp < support_level:
+                msg = (f"🔴 **PUT SWEEP DETECTED (Bearish)**\n"
+                       f"📊 Ticker: **{ticker}**\n"
+                       f"━━━━━━━━━━━━━━━\n"
+                       f"💀 **EMERGENZA/SCARICO**\n"
+                       f"💰 Valore Stimato: **${cash_flow:.2f}M**\n"
+                       f"📉 Prezzo: ${cp:.2f} (Sotto Supporto)\n"
+                       f"📊 Score: {score}/10 {stars}\n"
+                       f"📢 *Nota: Istituzionali in uscita o copertura Put.*")
+                send_telegram(msg)
+                return True
+
+            # Caso B: Prezzo vicino al supporto o in rimbalzo = CALL SWEEP (Bullish)
+            elif distanza_supporto <= 1.5:
+                msg = (f"🔵 **CALL SWEEP DETECTED (Bullish)**\n"
+                       f"📊 Ticker: **{ticker}**\n"
+                       f"━━━━━━━━━━━━━━━\n"
+                       f"🔥 **ACCUMULO ISTITUZIONALE**\n"
+                       f"💰 Valore Stimato: **${cash_flow:.2f}M**\n"
+                       f"📈 Prezzo: ${cp:.2f} (Vicino Supporto)\n"
+                       f"📊 Score: {score}/10 {stars}\n"
+                       f"✅ **INGRESSO OTTIMALE**")
+                send_telegram(msg)
+                return True
+
+        # --- ALERT EXIT PROFIT (Solo Portfolio) ---
+        if ticker in MY_PORTFOLIO and rsi > 75:
+            send_telegram(f"🟡 **EXIT PROFIT: {ticker}**\n━━━━━━━━━━━━━━━\n📈 RSI: {rsi:.2f}\n💰 Prezzo: ${cp:.2f}\n✅ **Target raggiunto! Incassa.**")
             return True
-            
+
         return False
-    except: 
-        return False
+    except: return False
 
 def main():
     now = datetime.datetime.now()
-    # No borsa nel weekend
     if now.weekday() > 4: return 
-    # Orario operativo (14:30 - 21:15 UTC = 15:30 - 22:15 ITA)
     if now.hour < 14 or (now.hour >= 21 and now.minute > 15): return
 
-    # --- WATCHLIST COMPLETA 180+ TITOLI ---
     watchlist = [
         "STNE", "PATH", "RGTI", "QUBT", "IONQ", "C3AI", "AI", "BBAI", "PLTR", "SOUN", "SNOW", "NET", "CRWD", "DDOG", "ZS", "OKTA", "MDB", "TEAM", "S", "U", "ADBE", "CRM", "WDAY", "NOW",
         "NU", "PAGS", "MELI", "SOFI", "UPST", "AFRM", "HOOD", "SQ", "PYPL", "COIN", "FLYV", "MARQ", "BILL", "TOST", "DAVE", "MQ", "LC", "BABA", "JD", "PDUO",
@@ -109,18 +102,15 @@ def main():
         "OPEN", "HOV", "BLND", "HRTX", "MNMD", "FSR", "NKLA", "WKHS", "DNA", "PLBY", "SKLZ", "SENS", "HYLN", "ASTS", "ORBK", "LIDR", "INVZ", "LAZR", "AEVA"
     ]
     
-    # Determina se è orario di Scansione Totale (Caccia) o solo Portafoglio (Difesa)
     is_caccia_time = now.hour in ORARI_CACCIA and now.minute < 15
     tickers = list(set(watchlist + MY_PORTFOLIO)) if is_caccia_time else MY_PORTFOLIO
-    mode = "CACCIA 🏹" if is_caccia_time else "DIFESA 🛡️"
 
-    # Messaggio di stato (ogni ora)
     if now.minute == 0:
-        send_telegram(f"🔎 **SCANNER PRO ATTIVO**\nModalità: {mode}\nTitoli in scansione: {len(tickers)}")
+        send_telegram(f"🔍 **SCANNER PRO ATTIVO**\nScansione in corso su {len(tickers)} titoli...")
 
     for t in tickers:
         analyze_stock(t, is_caccia_time)
-        time.sleep(0.5) # Pausa per evitare blocchi API
+        time.sleep(0.5)
 
 if __name__ == "__main__":
     main()
