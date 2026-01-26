@@ -7,7 +7,7 @@ import time
 
 # --- 1. CONFIGURAZIONE ---
 MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "QUBT", "DKNG", "AI", "BBAI", "ADCT", "AGEN"]
-ORARI_CACCIA = [15, 18, 20] # 16:00, 19:00, 21:00 ITA
+ORARI_CACCIA = [15, 18, 20] # Corrisponde a 16:15, 19:15, 21:15 ITA
 
 def send_telegram(message):
     token = os.getenv("TELEGRAM_TOKEN")
@@ -26,14 +26,20 @@ def calculate_rsi(prices, period=14):
     return 100 - (100 / (1 + rs))
 
 def get_market_sentiment():
-    """Analisi dell'indice SPY per definire il contesto di mercato"""
+    """Analisi migliorata per evitare UNKNOWN e gestire il ritardo"""
     try:
-        spy = yf.download("SPY", period="2d", interval="15m", progress=False)
-        rsi_spy = calculate_rsi(spy['Close']).iloc[-1]
-        if rsi_spy < 40: return "🔴 BEARISH"
-        if rsi_spy > 60: return "🟢 BULLISH"
-        return "⚪ NEUTRAL"
-    except: return "🟡 UNKNOWN"
+        # Scarichiamo 5 giorni per avere dati storici sufficienti per l'RSI a 14 periodi
+        spy = yf.download("SPY", period="5d", interval="15m", progress=False)
+        if len(spy) < 15: return "⚪ NEUTRAL (Dati in caricamento)"
+        
+        rsi_values = calculate_rsi(spy['Close'])
+        last_rsi = rsi_values.dropna().iloc[-1]
+        
+        if last_rsi < 40: return f"🔴 BEARISH ({last_rsi:.1f})"
+        if last_rsi > 60: return f"🟢 BULLISH ({last_rsi:.1f})"
+        return f"⚪ NEUTRAL ({last_rsi:.1f})"
+    except:
+        return "🟡 ANALISI SOSPESA"
 
 def analyze_stock(ticker, is_full_scan, market_sentiment):
     try:
@@ -48,27 +54,23 @@ def analyze_stock(ticker, is_full_scan, market_sentiment):
         rsi = calculate_rsi(df['Close']).iloc[-1]
         
         support_level = float(df['Low'].tail(50).min())
-        distanza_supporto = ((cp - support_level) / support_level) * 100
         cash_flow = (vol * cp) / 1_000_000 
 
-        # --- LOGICA 9/10: FILTRO SWEEP / ICEBERG ---
+        # --- LOGICA SWEEP / ICEBERG ---
         mult = 1.8 if is_full_scan else 3.5
         if vol > (avg_vol * mult):
             score = min(10, int((vol / avg_vol) * 1.5))
             if "BULLISH" in market_sentiment: score += 1
             stars = "⭐" * (score // 2)
 
-            # Caso A: PUT SWEEP (Prezzo rompe supporto o calo violento)
             if cp < support_level or var_pct < -1.5:
                 tipo = "🔴 **PUT SWEEP / DANGER**"
-                nota = "Istituzionali in uscita aggressiva."
-            # Caso B: CALL SWEEP / ICEBERG
+                nota = "Istituzionali in uscita."
             else:
                 tipo = "🔵 **CALL SWEEP / ACCUMULO**" if var_pct > 0.5 else "🧊 **ICEBERG DETECTED**"
-                nota = "Ingresso istituzionale rilevato."
+                nota = "Ingresso istituzionale."
 
-            msg = (f"{tipo}\n"
-                   f"📊 Ticker: **{ticker}** ({var_pct:+.2f}%)\n"
+            msg = (f"{tipo}\n📊 Ticker: **{ticker}** ({var_pct:+.2f}%)\n"
                    f"━━━━━━━━━━━━━━━\n"
                    f"💰 Flow: **${cash_flow:.2f}M**\n"
                    f"📈 RSI: {rsi:.1f} | MKT: {market_sentiment}\n"
@@ -78,9 +80,9 @@ def analyze_stock(ticker, is_full_scan, market_sentiment):
             send_telegram(msg)
             return True
 
-        # --- EXIT PROFIT (Solo Portfolio) ---
+        # --- EXIT PROFIT ---
         if ticker in MY_PORTFOLIO and rsi > 75:
-            send_telegram(f"🟡 **EXIT PROFIT: {ticker}**\n━━━━━━━━━━━━━━━\n📈 RSI: {rsi:.2f}\n💰 Prezzo: ${cp:.2f}\n✅ **Vendi e incassa!**")
+            send_telegram(f"🟡 **EXIT PROFIT: {ticker}**\n📈 RSI: {rsi:.2f}\n💰 Prezzo: ${cp:.2f}\n✅ **Vendi ora!**")
             return True
 
         return False
@@ -89,17 +91,19 @@ def analyze_stock(ticker, is_full_scan, market_sentiment):
 def main():
     now = datetime.datetime.now()
     if now.weekday() > 4: return 
-    if now.hour < 14 or (now.hour >= 21 and now.minute > 15): return
+    # Orario apertura/chiusura USA ritoccato per sicurezza
+    if now.hour < 14 or (now.hour >= 21 and now.minute > 30): return
 
     watchlist = ["STNE", "PATH", "RGTI", "QUBT", "IONQ", "C3AI", "AI", "BBAI", "PLTR", "SOUN", "SNOW", "NET", "CRWD", "DDOG", "ZS", "OKTA", "MDB", "TEAM", "S", "U", "ADBE", "CRM", "WDAY", "NOW", "NU", "PAGS", "MELI", "SOFI", "UPST", "AFRM", "HOOD", "SQ", "PYPL", "COIN", "FLYV", "MARQ", "BILL", "TOST", "DAVE", "MQ", "LC", "BABA", "JD", "PDUO", "MARA", "RIOT", "CLSK", "HUT", "BITF", "MSTR", "WULF", "CIFR", "ANY", "BTBT", "CAN", "SDIG", "ADCT", "AGEN", "VRTX", "VKTX", "SAVA", "IOVA", "BBIO", "MDGL", "REGN", "ILMN", "EXAS", "BNTX", "MRNA", "SGEN", "IQV", "TDOC", "BMEA", "SRPT", "CRSP", "EDIT", "BEAM", "NTLA", "VERV", "GRTS", "RLAY", "IRON", "TLRY", "CGC", "AMD", "NVDA", "INTC", "MU", "TXN", "TSM", "ASML", "AMAT", "LRCX", "KLAC", "SNPS", "CDNS", "ARM", "MRVL", "AVGO", "SMCI", "ANET", "TER", "ENTG", "ON", "TSLA", "RIVN", "LCID", "F", "GM", "RACE", "STLA", "ENPH", "SEDG", "FSLR", "PLUG", "CHPT", "RUN", "QS", "NIO", "XPEV", "LI", "BE", "NEE", "BLDP", "FCEL", "DKNG", "PENN", "RCL", "CCL", "NCLH", "AAL", "DAL", "UAL", "LUV", "BKNG", "EXPE", "MAR", "HLT", "GENI", "RSI", "SHOP", "DOCU", "ZM", "DASH", "ABNB", "UBER", "LYFT", "CHWY", "ROKU", "PINS", "SNAP", "EBAY", "ETSY", "RVLV", "META", "GOOGL", "AMZN", "MSFT", "AAPL", "NFLX", "DIS", "PARA", "WBD", "AMC", "GME", "BB", "NOK", "FUBO", "SPCE", "RBLX", "MTCH", "BMBL", "YELP", "TTD", "OPEN", "HOV", "BLND", "HRTX", "MNMD", "FSR", "NKLA", "WKHS", "DNA", "PLBY", "SKLZ", "SENS", "HYLN", "ASTS", "ORBK", "LIDR", "INVZ", "LAZR", "AEVA"]
     
     market_sentiment = get_market_sentiment()
-    is_caccia_time = now.hour in ORARI_CACCIA and now.minute < 15
+    
+    # Sincronizzazione: Scansione completa solo tra i minuti 15 e 25 (per dati Yahoo "freschi")
+    is_caccia_time = now.hour in ORARI_CACCIA and (15 <= now.minute <= 25)
     tickers = list(set(watchlist + MY_PORTFOLIO)) if is_caccia_time else MY_PORTFOLIO
 
-    # --- STATUS MESSAGE ---
-    if now.minute < 10:
-        send_telegram(f"🔎 **SCANNER 9/10 ATTIVO**\n━━━━━━━━━━━━━━━\nMood Mercato: {market_sentiment}\nTarget: {len(tickers)} titoli")
+    if 15 <= now.minute <= 20:
+        send_telegram(f"🔎 **SCANNER 9.5/10 ATTIVO**\n━━━━━━━━━━━━━━━\nMood Mercato: {market_sentiment}\nTarget: {len(tickers)} titoli")
 
     for t in tickers:
         analyze_stock(t, is_caccia_time, market_sentiment)
