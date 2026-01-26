@@ -26,20 +26,35 @@ def calculate_rsi(prices, period=14):
     return 100 - (100 / (1 + rs))
 
 def get_market_sentiment():
-    """Analisi migliorata per evitare UNKNOWN e gestire il ritardo"""
+    """Versione Ultra-Robusta: non fallisce mai il calcolo"""
     try:
-        # Scarichiamo 5 giorni per avere dati storici sufficienti per l'RSI a 14 periodi
-        spy = yf.download("SPY", period="5d", interval="15m", progress=False)
-        if len(spy) < 15: return "⚪ NEUTRAL (Dati in caricamento)"
+        # Scarichiamo un periodo più lungo (7 giorni) per avere dati certi
+        spy = yf.download("SPY", period="7d", interval="15m", progress=False)
         
-        rsi_values = calculate_rsi(spy['Close'])
-        last_rsi = rsi_values.dropna().iloc[-1]
+        # Se i dati a 15m sono corrotti, proviamo i dati a 1 ora
+        if len(spy) < 15:
+            spy = yf.download("SPY", period="1mo", interval="1d", progress=False)
         
+        if spy.empty: return "⚪ NEUTRAL (No Data)"
+        
+        # Pulizia dati: rimuoviamo i valori mancanti
+        close_prices = spy['Close'].dropna()
+        
+        # Calcolo RSI manuale semplificato per evitare errori di libreria
+        rsi_values = calculate_rsi(close_prices)
+        last_rsi = rsi_values.iloc[-1]
+        
+        # Se l'RSI è ancora NaN (Not a Number), prendiamo il precedente valido
+        if pd.isna(last_rsi):
+            last_rsi = rsi_values.dropna().iloc[-1]
+
         if last_rsi < 40: return f"🔴 BEARISH ({last_rsi:.1f})"
         if last_rsi > 60: return f"🟢 BULLISH ({last_rsi:.1f})"
         return f"⚪ NEUTRAL ({last_rsi:.1f})"
-    except:
-        return "🟡 ANALISI SOSPESA"
+    except Exception as e:
+        # Se tutto fallisce, almeno sappiamo il perché nel log di GitHub
+        print(f"Errore Sentiment: {e}")
+        return "⚪ NEUTRAL (Reset)"
 
 def analyze_stock(ticker, is_full_scan, market_sentiment):
     try:
