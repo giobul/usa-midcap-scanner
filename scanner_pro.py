@@ -5,21 +5,25 @@ import os
 import requests
 import time
 
-# --- 1. CONFIGURAZIONE PORTAFOGLIO (EXIT/MONITOR) ---
-# Se questi titoli superano RSI 75, ricevi 3 messaggi di allerta vendita.
-MY_PORTFOLIO = ["STNE", "ETOR", "PATH", "RGTI", "QUBT", "DKNG", "AI", "BBAI", "ADCT", "AGEN"]
+# --- 1. CONFIGURAZIONE PORTAFOGLIO (EXIT & EMERGENZA) ---
+# I titoli che possiedi già. Il bot li controlla ogni 5 minuti.
+MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "QUBT", "DKNG", "AI", "BBAI", "ADCT", "AGEN"]
 
-# Orari delle scansioni profonde su tutta la watchlist (180+ titoli)
-ORARI_CACCIA = [15, 18, 20] # 16:00, 19:00, 21:00 italiane
+# Orari delle scansioni profonde su tutta la watchlist (16:00, 19:00, 21:00 ITA)
+ORARI_CACCIA = [15, 18, 20] 
 
 def send_telegram(message):
     token = os.getenv("TELEGRAM_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
-    if not token or not chat_id: return
+    if not token or not chat_id: 
+        print("Errore: Token o Chat ID mancanti nei Secrets di GitHub")
+        return
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {"chat_id": chat_id, "text": message, "parse_mode": "Markdown"}
-    try: requests.post(url, json=payload, timeout=10)
-    except: pass
+    try: 
+        requests.post(url, json=payload, timeout=10)
+    except Exception as e:
+        print(f"Errore invio Telegram: {e}")
 
 def calculate_rsi(prices, period=14):
     delta = prices.diff()
@@ -40,73 +44,83 @@ def analyze_stock(ticker, is_full_scan):
         df['RSI'] = calculate_rsi(df['Close'])
         rsi = float(df['RSI'].iloc[-1])
         
-        # Supporto basato sui minimi recenti
+        # Supporto basato sui minimi degli ultimi 50 periodi (circa 2 giorni)
         support_level = float(df['Low'].tail(50).min())
         distanza_supporto = ((cp - support_level) / support_level) * 100
 
-        # --- AZIONE A: DIFESA (MONITOR PORTAFOGLIO) ---
-        if ticker in MY_PORTFOLIO and rsi > 75:
-            for h in ["🚨 ALLERTA VENDITA 1/3", "🔊 ALLERTA VENDITA 2/3", "⚠️ ALLERTA FINALE 3/3"]:
-                send_telegram(f"*{h}*\n**{ticker}** in ipercomprato estremo! RSI: {rsi:.2f}\nPrezzo attuale: ${cp:.2f}")
-                time.sleep(5)
+        # --- AZIONE 1: EMERGENZA (🔴 ROTTURA SUPPORTO CON VOLUME) ---
+        if ticker in MY_PORTFOLIO and cp < support_level and vol > avg_vol:
+            send_telegram(f"🔴 **🚨 EMERGENZA: {ticker}**\n"
+                          f"━━━━━━━━━━━━━━━\n"
+                          f"⚠️ **ROTTURA SUPPORTO!**\n"
+                          f"💰 Prezzo attuale: ${cp:.2f}\n"
+                          f"📉 Supporto rotto: ${support_level:.2f}\n"
+                          f"📢 *Nota: Volume alto in uscita. Valuta chiusura.*")
             return True
 
-        # --- AZIONE B: CACCIA (ACCUMULO ISTITUZIONALE) ---
-        mult = 1.5 if is_full_scan else 2.5
+        # --- AZIONE 2: DIFESA (🟡 PRESA PROFITTO RSI) ---
+        if ticker in MY_PORTFOLIO and rsi > 75:
+            send_telegram(f"🟡 **EXIT PROFIT: {ticker}**\n"
+                          f"━━━━━━━━━━━━━━━\n"
+                          f"📈 RSI: {rsi:.2f} (Ipercomprato)\n"
+                          f"💰 Prezzo attuale: ${cp:.2f}\n"
+                          f"✅ **Target raggiunto! Incassa il profitto.**")
+            return True
+
+        # --- AZIONE 3: CACCIA (🔵 ACCUMULO ISTITUZIONALE) ---
+        # Moltiplicatore volume: più basso durante la caccia per trovare più opportunità
+        mult = 1.8 if is_full_scan else 3.5
         if vol > (avg_vol * mult) and distanza_supporto <= 1.5:
-            # Calcolo Score Iceberg
             score = min(10, int((vol / avg_vol) * 1.5))
             stars = "⭐" * (score // 2) if score > 1 else "🔹"
             
             tipo = "🔥 **SWEEP AGGRESSIVO**" if vol > (avg_vol * 4.0) else "🧊 **ICEBERG DETECTED**"
-            status = "✅ **INGRESSO OTTIMALE**" if distanza_supporto <= 1.1 else "⚖️ **ACCUMULO IN CORSO**"
-
+            
             msg = f"{tipo}: **{ticker}**\n"
             msg += f"━━━━━━━━━━━━━━━\n"
             msg += f"📊 **ICEBERG SCORE: {score}/10** {stars}\n"
             msg += f"💰 Prezzo: ${cp:.2f}\n"
-            msg += f"📈 Volumi: {vol/avg_vol:.1f}x media\n"
-            msg += f"📍 Posizione: {status}\n"
+            msg += f"📈 Volume: {vol/avg_vol:.1f}x media\n"
             msg += f"🎯 Supporto breakout: ${support_level:.2f}"
             send_telegram(msg)
             return True
+            
         return False
-    except: return False
+    except: 
+        return False
 
 def main():
     now = datetime.datetime.now()
+    # No borsa nel weekend
     if now.weekday() > 4: return 
-    # Orario mercato US (15:30 - 22:00)
+    # Orario operativo (14:30 - 21:15 UTC = 15:30 - 22:15 ITA)
     if now.hour < 14 or (now.hour >= 21 and now.minute > 15): return
 
-    # --- WATCHLIST MASTER (TECH + GROWTH + BIOTECH PHASE 3) ---
+    # --- WATCHLIST COMPLETA 180+ TITOLI ---
     watchlist = [
-        "STNE", "NU", "PAGS", "MELI", "SOFI", "UPST", "AFRM", "HOOD", "SQ", "PYPL", "COIN", "FLYV", "MARQ", "BILL", "TOST",
-        "PLTR", "SNOW", "NET", "CRWD", "DDOG", "ZS", "OKTA", "MDB", "TEAM", "SHOP", "DOCU", "ZM", "PATH", "C3AI", "U", "AI", "IONQ", "ASAN", "SMARTS", "IOT", "SAMS", "DUOL", "FRSH", "BRZE", "ADBE", "CRM", "WDAY", "NOW",
-        "SE", "CPNG", "TME", "BILI", "PDUO", "JD", "BABA", "DASH", "ABNB", "UBER", "LYFT", "ETSG", "CHWY", "RVLV", "W", "ROKU", "PINS", "SNAP", "EBAY", "ETSY",
-        "AMD", "NVDA", "INTC", "MU", "TXN", "TSM", "ASML", "AMAT", "LRCX", "KLAC", "SNPS", "CDNS", "ARM", "MRVL", "AVGO", "SMCI",
-        "TSLA", "RIVN", "LCID", "F", "GM", "RACE", "STLA", "ENPH", "SEDG", "FSLR", "PLUG", "CHPT", "RUN", "QS", "NIO", "XPEV", "LI", "BE", "NEE",
-        "MARA", "RIOT", "CLSK", "HUT", "BITF", "MSTR", "WULF", "CIFR", "ANY",
-        "DKNG", "PENN", "RCL", "CCL", "NCLH", "AAL", "DAL", "UAL", "LUV", "BKNG", "EXPE", "MAR", "HLT", "GENI", "RSI",
-        "META", "GOOGL", "AMZN", "MSFT", "AAPL", "NFLX", "DIS", "PARA", "WBD", "AMC", "GME", "BB", "NOK", "TLRY", "CGC", "ACB", "SNDL", "OPEN", "HOV", "BLND", "HRTX", "MNMD", "FSR", "NKLA", "WKHS", "RBLX", "DNA", "S", "FUBO", "SPCE", "PLBY", "SKLZ", "VERV", "BEAM", "EDIT", "CRSP", "NTLA", "MTCH", "BMBL", "YELP",
-        "ADCT", "AGEN", "VRTX", "REGN", "ILMN", "EXAS", "BNTX", "MRNA", "SGEN", "IQV", "TDOC", "MODN", "BMEA", "SRPT", "BBAI", "RGTI", "QUBT", "ETOR",
-        "SAVA", "VKTX", "IOVA", "BBIO", "MDGL" # <--- LEADERS PHASE 3 AGGIUNTI
+        "STNE", "PATH", "RGTI", "QUBT", "IONQ", "C3AI", "AI", "BBAI", "PLTR", "SOUN", "SNOW", "NET", "CRWD", "DDOG", "ZS", "OKTA", "MDB", "TEAM", "S", "U", "ADBE", "CRM", "WDAY", "NOW",
+        "NU", "PAGS", "MELI", "SOFI", "UPST", "AFRM", "HOOD", "SQ", "PYPL", "COIN", "FLYV", "MARQ", "BILL", "TOST", "DAVE", "MQ", "LC", "BABA", "JD", "PDUO",
+        "MARA", "RIOT", "CLSK", "HUT", "BITF", "MSTR", "WULF", "CIFR", "ANY", "BTBT", "CAN", "SDIG",
+        "ADCT", "AGEN", "VRTX", "VKTX", "SAVA", "IOVA", "BBIO", "MDGL", "REGN", "ILMN", "EXAS", "BNTX", "MRNA", "SGEN", "IQV", "TDOC", "BMEA", "SRPT", "CRSP", "EDIT", "BEAM", "NTLA", "VERV", "GRTS", "RLAY", "IRON", "TLRY", "CGC",
+        "AMD", "NVDA", "INTC", "MU", "TXN", "TSM", "ASML", "AMAT", "LRCX", "KLAC", "SNPS", "CDNS", "ARM", "MRVL", "AVGO", "SMCI", "ANET", "TER", "ENTG", "ON",
+        "TSLA", "RIVN", "LCID", "F", "GM", "RACE", "STLA", "ENPH", "SEDG", "FSLR", "PLUG", "CHPT", "RUN", "QS", "NIO", "XPEV", "LI", "BE", "NEE", "BLDP", "FCEL",
+        "DKNG", "PENN", "RCL", "CCL", "NCLH", "AAL", "DAL", "UAL", "LUV", "BKNG", "EXPE", "MAR", "HLT", "GENI", "RSI", "SHOP", "DOCU", "ZM", "DASH", "ABNB", "UBER", "LYFT", "CHWY", "ROKU", "PINS", "SNAP", "EBAY", "ETSY", "RVLV",
+        "META", "GOOGL", "AMZN", "MSFT", "AAPL", "NFLX", "DIS", "PARA", "WBD", "AMC", "GME", "BB", "NOK", "FUBO", "SPCE", "RBLX", "MTCH", "BMBL", "YELP", "TTD",
+        "OPEN", "HOV", "BLND", "HRTX", "MNMD", "FSR", "NKLA", "WKHS", "DNA", "PLBY", "SKLZ", "SENS", "HYLN", "ASTS", "ORBK", "LIDR", "INVZ", "LAZR", "AEVA"
     ]
     
-    if now.hour in ORARI_CACCIA and now.minute < 35:
-        tickers = list(set(watchlist + MY_PORTFOLIO))
-        mode = "CACCIA"
-    else:
-        tickers = MY_PORTFOLIO
-        mode = "DIFESA"
+    # Determina se è orario di Scansione Totale (Caccia) o solo Portafoglio (Difesa)
+    is_caccia_time = now.hour in ORARI_CACCIA and now.minute < 15
+    tickers = list(set(watchlist + MY_PORTFOLIO)) if is_caccia_time else MY_PORTFOLIO
+    mode = "CACCIA 🏹" if is_caccia_time else "DIFESA 🛡️"
 
-    found_any = False
+    # Messaggio di stato (ogni ora)
+    if now.minute == 0:
+        send_telegram(f"🔎 **SCANNER PRO ATTIVO**\nModalità: {mode}\nTitoli in scansione: {len(tickers)}")
+
     for t in tickers:
-        if analyze_stock(t, mode == "CACCIA"): found_any = True
-        time.sleep(0.4)
-
-    if mode == "CACCIA" and not found_any:
-        send_telegram(f"✅ Scansione delle {now.hour+1}:00 completata. Nessun accumulo rilevante.")
+        analyze_stock(t, is_caccia_time)
+        time.sleep(0.5) # Pausa per evitare blocchi API
 
 if __name__ == "__main__":
     main()
