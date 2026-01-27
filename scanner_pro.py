@@ -35,94 +35,74 @@ def get_market_sentiment():
 
 def analyze_stock(ticker, is_caccia, market_sentiment):
     try:
-        # Recuperiamo più dati (60 giorni) per avere una media volumetrica solida
         df = yf.download(ticker, period="20d", interval="15m", progress=False)
         if df.empty or len(df) < 50: return
         
-        # --- DATI ATTUALI ---
         cp = float(df['Close'].iloc[-1])
+        open_p = float(df['Open'].iloc[-1])
         vol_attuale = float(df['Volume'].iloc[-1])
         rsi = calculate_rsi(df['Close']).iloc[-1]
         
-        # --- CALCOLO ANOMALIA (Z-SCORE) ---
-        # Invece della media semplice, calcoliamo quanto il volume attuale devia dalla norma
+        # 1. ANALISI VOLUMETRICA (Z-SCORE)
         avg_vol = df['Volume'].mean()
         std_vol = df['Volume'].std()
         z_score = (vol_attuale - avg_vol) / std_vol
         
-        # --- VALIDAZIONE BREAKOUT (MASSIMI) ---
-        # Controlliamo se il prezzo sta rompendo il massimo delle ultime 10 candele (2.5 ore)
-        recent_high = df['High'].tail(10).max()
-        is_breaking_out = cp >= (recent_high * 0.998) # Margine dello 0.2% dal massimo
+        # 2. CONTROLLO VELOCITÀ (CANDELA ESTESA)
+        last_candle_move = ((cp - open_p) / open_p) * 100
+        is_extended = last_candle_move > 3.0
         
-        # --- FILTRO SICUREZZA ---
+        # 3. BREAKOUT & SUPPORTO
+        recent_high = df['High'].tail(10).max()
+        is_breaking_out = cp >= (recent_high * 0.998)
         support = float(df['Low'].tail(50).min())
         dist_supp = ((cp - support) / support) * 100
-        
-        # --- LOGICA "PRECISIONE" (IL MIRINO) ---
-        # Trigger molto più selettivo: 
-        # CACCIA: Richiede Z-Score alto + Breakout Prezzo
-        # RADAR: Richiede Volume esplosivo (Z-Score > 5)
-        trigger = False
-        if is_caccia:
-            if z_score > 2.0 and is_breaking_out: trigger = True
-        else:
-            if z_score > 5.0: trigger = True
+
+        # TRIGGER
+        trigger = (z_score > 2.0 and is_breaking_out) if is_caccia else (z_score > 5.0)
 
         if trigger:
-            # Calcolo Score basato sulla convergenza (Max 10)
             score = 5
             if z_score > 3: score += 2
             if is_breaking_out: score += 2
             if "BULLISH" in market_sentiment: score += 1
-            if rsi < 40: score -= 2 # Debolezza eccessiva
-            if rsi > 70: score -= 1 # Estensione eccessiva
-
-            # DEFINIZIONE TIPO (PIÙ PRECISA)
-            # Se il volume è enorme ma il prezzo è fermo = ICEBERG
-            # Se il volume è alto e il prezzo corre = SWEEP/MOMENTUM
-            movimento_prezzo = abs(((cp - df['Close'].iloc[-2]) / df['Close'].iloc[-2]) * 100)
+            if rsi > 70 or is_extended: score -= 1 # Penalità per eccesso
             
-            if movimento_prezzo < 0.2 and z_score > 3:
-                tipo = "🧊 VERO ICEBERG (Accumulo)"
-            elif cp > df['Close'].iloc[-2]:
-                tipo = "🐋 BALENA / CALL SWEEP"
-            else:
-                tipo = "⚠️ VOLUME SOSPETTO"
+            # DEFINIZIONE TIPO
+            mov_p = abs(((cp - df['Close'].iloc[-2]) / df['Close'].iloc[-2]) * 100)
+            if mov_p < 0.2 and z_score > 3: tipo = "🧊 VERO ICEBERG"
+            elif cp > df['Close'].iloc[-2]: tipo = "🐋 BALENA / CALL SWEEP"
+            else: tipo = "⚠️ VOLUME SOSPETTO"
 
-            # SEMAFORO
-            semaforo = "🟢 OTTIMO" if dist_supp < 2.5 else "🟡 RISCHIOSO" if dist_supp < 5 else "🔴 EVITARE"
+            # SEMAFORO E ALERT ESTENSIONE
+            semaforo = "🟢 OTTIMO" if dist_supp < 2.5 else "🟡 RISCHIOSO"
+            alert_speed = "⚠️ CANDELA ESTESA (Rischio Rintracciamento)" if is_extended else "✅ Movimento Sano"
 
-            # Invia solo se lo Score è degno dei tuoi 5.000€
             if score >= 7:
                 msg = (f"{tipo} | {semaforo}\n"
                        f"📊 Ticker: **{ticker}**\n"
                        f"━━━━━━━━━━━━━━━\n"
-                       f"🔥 Forza Segnale: **{z_score:.1f}x sopra media**\n"
-                       f"📈 Stato: {'✅ Breakout in corso' if is_breaking_out else '⏳ Consolidamento'}\n"
-                       f"📉 Dist. Supporto: **{dist_supp:.2f}%**\n"
+                       f"🔥 Forza: **{z_score:.1f}x sopra media**\n"
+                       f"⚡ Speed: **{last_candle_move:+.2f}%** ({alert_speed})\n"
+                       f"📈 Stato: {'✅ Breakout' if is_breaking_out else '⏳ Consolidamento'}\n"
+                       f"📉 Dist. Supp: **{dist_supp:.2f}%**\n"
                        f"🎯 RSI: {rsi:.1f} | **SCORE: {score}/10**\n"
                        f"💰 *Obiettivo: Minimo 50€ profit*")
                 send_telegram(msg)
 
-    except Exception as e:
-        print(f"Errore su {ticker}: {e}")
+        # EXIT PROFIT
+        if ticker in MY_PORTFOLIO and rsi > 75:
+            send_telegram(f"🟡 **EXIT PROFIT: {ticker}**\n📈 RSI: {rsi:.2f}\n✅ **Vendi e incassa i 200€!**")
+
+    except: pass
 
 def main():
     now = datetime.datetime.now()
     if now.weekday() > 4: return 
     if now.hour < 14 or (now.hour >= 21 and now.minute > 15): return
-
     market_sentiment = get_market_sentiment()
     is_caccia = now.hour in ORARI_CACCIA and (15 <= now.minute <= 25)
-    
-    # Scansiona sempre tutto, ma analyze_stock decide se inviare alert basandosi sull'urgenza
     tickers = list(set(WATCHLIST + MY_PORTFOLIO))
-
-    # Status Message
-    if is_caccia and 15 <= now.minute <= 18:
-        send_telegram(f"🔎 **SCANNER 10/10 ATTIVO**\nMood: {market_sentiment}\nTarget: {len(tickers)} titoli")
-
     for t in tickers:
         analyze_stock(t, is_caccia, market_sentiment)
         time.sleep(0.5)
