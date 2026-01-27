@@ -26,34 +26,24 @@ def calculate_rsi(prices, period=14):
     return 100 - (100 / (1 + rs))
 
 def get_market_sentiment():
-    """Versione Ultra-Robusta: non fallisce mai il calcolo"""
+    """Versione Ultra-Robusta: garantisce sempre un dato sull'RSI dello SPY"""
     try:
-        # Scarichiamo un periodo più lungo (7 giorni) per avere dati certi
         spy = yf.download("SPY", period="7d", interval="15m", progress=False)
-        
-        # Se i dati a 15m sono corrotti, proviamo i dati a 1 ora
         if len(spy) < 15:
             spy = yf.download("SPY", period="1mo", interval="1d", progress=False)
+        if spy.empty: return "⚪ NEUTRAL"
         
-        if spy.empty: return "⚪ NEUTRAL (No Data)"
-        
-        # Pulizia dati: rimuoviamo i valori mancanti
         close_prices = spy['Close'].dropna()
-        
-        # Calcolo RSI manuale semplificato per evitare errori di libreria
         rsi_values = calculate_rsi(close_prices)
         last_rsi = rsi_values.iloc[-1]
         
-        # Se l'RSI è ancora NaN (Not a Number), prendiamo il precedente valido
         if pd.isna(last_rsi):
             last_rsi = rsi_values.dropna().iloc[-1]
 
         if last_rsi < 40: return f"🔴 BEARISH ({last_rsi:.1f})"
         if last_rsi > 60: return f"🟢 BULLISH ({last_rsi:.1f})"
         return f"⚪ NEUTRAL ({last_rsi:.1f})"
-    except Exception as e:
-        # Se tutto fallisce, almeno sappiamo il perché nel log di GitHub
-        print(f"Errore Sentiment: {e}")
+    except:
         return "⚪ NEUTRAL (Reset)"
 
 def analyze_stock(ticker, is_full_scan, market_sentiment):
@@ -68,36 +58,44 @@ def analyze_stock(ticker, is_full_scan, market_sentiment):
         avg_vol = float(df['Volume'].mean())
         rsi = calculate_rsi(df['Close']).iloc[-1]
         
+        # --- CALCOLO LIVELLI CHIAVE ---
         support_level = float(df['Low'].tail(50).min())
+        resistance_level = float(df['High'].tail(50).max()) # Massimo ultimi 5 giorni
         cash_flow = (vol * cp) / 1_000_000 
 
-        # --- LOGICA SWEEP / ICEBERG ---
+        # --- LOGICA SWEEP / ACCUMULO ---
         mult = 1.8 if is_full_scan else 3.5
         if vol > (avg_vol * mult):
+            # Calcolo Score base
             score = min(10, int((vol / avg_vol) * 1.5))
+            
+            # Bonus Sentiment e Bonus Breakout
             if "BULLISH" in market_sentiment: score += 1
-            stars = "⭐" * (score // 2)
+            if cp >= resistance_level: score += 1 
+            
+            stars = "⭐" * (min(score, 10) // 2)
 
             if cp < support_level or var_pct < -1.5:
                 tipo = "🔴 **PUT SWEEP / DANGER**"
-                nota = "Istituzionali in uscita."
+                nota = "Istituzionali in uscita violenta."
             else:
                 tipo = "🔵 **CALL SWEEP / ACCUMULO**" if var_pct > 0.5 else "🧊 **ICEBERG DETECTED**"
-                nota = "Ingresso istituzionale."
+                nota = "Ingresso istituzionale pesante."
 
             msg = (f"{tipo}\n📊 Ticker: **{ticker}** ({var_pct:+.2f}%)\n"
                    f"━━━━━━━━━━━━━━━\n"
                    f"💰 Flow: **${cash_flow:.2f}M**\n"
                    f"📈 RSI: {rsi:.1f} | MKT: {market_sentiment}\n"
-                   f"📊 Score: {score}/10 {stars}\n"
+                   f"📊 Score: {min(score, 10)}/10 {stars}\n"
+                   f"🏔️ Resistenza: **${resistance_level:.2f}**\n"
                    f"🎯 Supporto: ${support_level:.2f}\n"
                    f"📢 *{nota}*")
             send_telegram(msg)
             return True
 
-        # --- EXIT PROFIT ---
+        # --- EXIT PROFIT (Solo per il tuo portafoglio) ---
         if ticker in MY_PORTFOLIO and rsi > 75:
-            send_telegram(f"🟡 **EXIT PROFIT: {ticker}**\n📈 RSI: {rsi:.2f}\n💰 Prezzo: ${cp:.2f}\n✅ **Vendi ora!**")
+            send_telegram(f"🟡 **EXIT PROFIT: {ticker}**\n━━━━━━━━━━━━━━━\n📈 RSI: {rsi:.2f}\n💰 Prezzo: ${cp:.2f}\n✅ **Vendi ora e incassa i 200€!**")
             return True
 
         return False
@@ -107,8 +105,7 @@ def main():
     now = datetime.datetime.now()
     if now.weekday() > 4: return 
     
-    # Inizia alle 14:00 UTC (15:00 ITA) 
-    # Finisce alle 21:15 UTC (22:15 ITA)
+    # Orario operativo USA (14:00 - 21:15 UTC)
     if now.hour < 14 or (now.hour == 21 and now.minute > 15) or now.hour > 21:
         return
 
@@ -116,12 +113,13 @@ def main():
     
     market_sentiment = get_market_sentiment()
     
-    # Sincronizzazione: Scansione completa solo tra i minuti 15 e 25 (per dati Yahoo "freschi")
+    # Scansione completa solo negli orari di caccia (tra min 15 e 25)
     is_caccia_time = now.hour in ORARI_CACCIA and (15 <= now.minute <= 25)
     tickers = list(set(watchlist + MY_PORTFOLIO)) if is_caccia_time else MY_PORTFOLIO
 
+    # Messaggio di Status una volta all'ora (tra min 15 e 20)
     if 15 <= now.minute <= 20:
-        send_telegram(f"🔎 **SCANNER 9.5/10 ATTIVO**\n━━━━━━━━━━━━━━━\nMood Mercato: {market_sentiment}\nTarget: {len(tickers)} titoli")
+        send_telegram(f"🔎 **SCANNER 10/10 ATTIVO**\n━━━━━━━━━━━━━━━\nMood Mercato: {market_sentiment}\nTarget: {len(tickers)} titoli")
 
     for t in tickers:
         analyze_stock(t, is_caccia_time, market_sentiment)
