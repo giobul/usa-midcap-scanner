@@ -5,10 +5,10 @@ import requests
 import time
 import datetime
 
-# --- CONFIGURAZIONE PULITA ---
+# --- LISTA PULITA (Rimosse le fallite: FSR, SGEN, GRTS, ecc.) ---
 MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "QUBT", "DKNG", "AI", "BBAI", "ADCT", "AGEN"]
-# Rimosse le "morte" segnalate dai tuoi log per velocizzare GitHub
-WATCHLIST = ["STNE", "PATH", "RGTI", "QUBT", "IONQ", "AI", "BBAI", "PLTR", "SOUN", "SNOW", "NET", "CRWD", "DDOG", "ZS", "OKTA", "MDB", "TEAM", "S", "U", "ADBE", "CRM", "WDAY", "NOW", "NU", "PAGS", "MELI", "SOFI", "UPST", "AFRM", "HOOD", "PYPL", "COIN", "MARQ", "BILL", "TOST", "DAVE", "MQ", "LC", "BABA", "JD", "PDD", "MARA", "RIOT", "CLSK", "HUT", "BITF", "MSTR", "WULF", "CIFR", "ANY", "BTBT", "CAN", "VRTX", "VKTX", "SAVA", "IOVA", "BBIO", "MDGL", "REGN", "ILMN", "EXAS", "BNTX", "MRNA", "IQV", "TDOC", "BMEA", "SRPT", "CRSP", "EDIT", "BEAM", "NTLA", "VERV", "RLAY", "IRON", "TLRY", "CGC", "AMD", "NVDA", "INTC", "MU", "TXN", "TSM", "ASML", "AMAT", "LRCX", "KLAC", "SNPS", "CDNS", "ARM", "MRVL", "AVGO", "SMCI", "ANET", "TER", "ENTG", "ON", "TSLA", "RIVN", "LCID", "F", "GM", "RACE", "STLA", "ENPH", "SEDG", "FSLR", "PLUG", "CHPT", "RUN", "QS", "NIO", "XPEV", "LI", "BE", "NEE", "BLDP", "FCEL", "DKNG", "PENN", "RCL", "CCL", "NCLH", "AAL", "DAL", "UAL", "LUV", "BKNG", "EXPE", "MAR", "HLT", "GENI", "RSI", "SHOP", "DOCU", "ZM", "DASH", "ABNB", "UBER", "LYFT", "CHWY", "ROKU", "PINS", "SNAP", "EBAY", "ETSY", "RVLV", "META", "GOOGL", "AMZN", "MSFT", "AAPL", "NFLX", "DIS", "WBD", "AMC", "GME", "BB", "NOK", "FUBO", "SPCE", "RBLX", "MTCH", "BMBL", "YELP", "TTD", "OPEN", "HOV", "BLND", "HRTX", "MNMD", "WKHS", "DNA", "PLBY", "SKLZ", "SENS", "HYLN", "ASTS", "INVZ", "AEVA"]
+
+WATCHLIST = ["STNE", "PATH", "RGTI", "QUBT", "IONQ", "AI", "BBAI", "PLTR", "SOUN", "SNOW", "NET", "CRWD", "DDOG", "ZS", "OKTA", "MDB", "TEAM", "S", "U", "ADBE", "CRM", "WDAY", "NOW", "NU", "PAGS", "MELI", "SOFI", "UPST", "AFRM", "HOOD", "PYPL", "COIN", "BILL", "TOST", "DAVE", "MQ", "LC", "BABA", "JD", "PDD", "MARA", "RIOT", "CLSK", "HUT", "BITF", "MSTR", "WULF", "CIFR", "ANY", "BTBT", "CAN", "VRTX", "VKTX", "SAVA", "IOVA", "BBIO", "MDGL", "REGN", "ILMN", "EXAS", "BNTX", "MRNA", "IQV", "TDOC", "BMEA", "SRPT", "CRSP", "EDIT", "BEAM", "NTLA", "RLAY", "IRON", "TLRY", "CGC", "AMD", "NVDA", "INTC", "MU", "TXN", "TSM", "ASML", "AMAT", "LRCX", "KLAC", "SNPS", "CDNS", "ARM", "MRVL", "AVGO", "SMCI", "ANET", "TER", "ENTG", "ON", "TSLA", "RIVN", "LCID", "F", "GM", "RACE", "STLA", "ENPH", "SEDG", "FSLR", "PLUG", "CHPT", "RUN", "QS", "NIO", "XPEV", "LI", "BE", "NEE", "BLDP", "FCEL", "DKNG", "PENN", "RCL", "CCL", "NCLH", "AAL", "DAL", "UAL", "LUV", "BKNG", "EXPE", "MAR", "HLT", "GENI", "RSI", "SHOP", "DOCU", "ZM", "DASH", "ABNB", "UBER", "LYFT", "CHWY", "ROKU", "PINS", "SNAP", "EBAY", "ETSY", "RVLV", "META", "GOOGL", "AMZN", "MSFT", "AAPL", "NFLX", "DIS", "WBD", "AMC", "GME", "BB", "NOK", "FUBO", "SPCE", "RBLX", "MTCH", "BMBL", "YELP", "TTD", "OPEN", "HOV", "BLND", "HRTX", "MNMD", "WKHS", "DNA", "PLBY", "SKLZ", "SENS", "HYLN", "ASTS", "INVZ", "AEVA", "VRT", "ETN", "POWI", "RMBS", "OKLO", "SMR", "HIMS", "CLVT", "LRN", "GCT"]
 
 def send_telegram(message):
     token = os.getenv("TELEGRAM_TOKEN")
@@ -28,8 +28,8 @@ def calculate_rsi(prices, period=14):
 
 def analyze_stock(ticker):
     try:
-        # Progress=False evita di sporcare i log di GitHub
-        df = yf.download(ticker, period="20d", interval="15m", progress=False)
+        # progress=False e proxy=None aiutano a tenere i log puliti
+        df = yf.download(ticker, period="20d", interval="15m", progress=False, show_errors=False)
         if df.empty or len(df) < 30: return
         
         cp = float(df['Close'].iloc[-1])
@@ -52,22 +52,20 @@ def analyze_stock(ticker):
 
         # PROFIT CHECK
         if ticker in MY_PORTFOLIO and rsi_val > 75:
-            send_telegram(f"💰 **PROFIT CHECK: {ticker}**\nRSI: {rsi_val:.1f}\nValuta se incassare i tuoi 50€+!")
+            send_telegram(f"💰 **PROFIT CHECK: {ticker}**\nRSI: {rsi_val:.1f}\nValuta se incassare!")
             print(f"ALERT PROFIT: {ticker}")
 
     except: pass
 
 def main():
     print(f"--- Inizio Scansione {datetime.datetime.now()} ---")
-    tickers = set(WATCHLIST + MY_PORTFOLIO)
-    count = 0
-    for t in tickers:
+    tickers = sorted(list(set(WATCHLIST + MY_PORTFOLIO)))
+    for i, t in enumerate(tickers):
         analyze_stock(t)
-        count += 1
-        if count % 25 == 0:
-            print(f"Avanzamento: {count}/{len(tickers)} titoli controllati...")
+        if (i + 1) % 25 == 0:
+            print(f"Check: {i + 1}/{len(tickers)} titoli completati...")
         time.sleep(0.4) 
-    print(f"--- Scansione completata con successo alle {datetime.datetime.now()} ---")
+    print(f"--- Fine Scansione {datetime.datetime.now()} ---")
 
 if __name__ == "__main__":
     main()
