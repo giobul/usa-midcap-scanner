@@ -1,11 +1,11 @@
 import yfinance as yf
 import pandas as pd
-import datetime
 import os
 import requests
 import time
+import datetime
 
-# --- 1. CONFIGURAZIONE ---
+# --- CONFIGURAZIONE ---
 MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "QUBT", "DKNG", "AI", "BBAI", "ADCT", "AGEN"]
 WATCHLIST = ["STNE", "PATH", "RGTI", "QUBT", "IONQ", "C3AI", "AI", "BBAI", "PLTR", "SOUN", "SNOW", "NET", "CRWD", "DDOG", "ZS", "OKTA", "MDB", "TEAM", "S", "U", "ADBE", "CRM", "WDAY", "NOW", "NU", "PAGS", "MELI", "SOFI", "UPST", "AFRM", "HOOD", "SQ", "PYPL", "COIN", "FLYV", "MARQ", "BILL", "TOST", "DAVE", "MQ", "LC", "BABA", "JD", "PDUO", "MARA", "RIOT", "CLSK", "HUT", "BITF", "MSTR", "WULF", "CIFR", "ANY", "BTBT", "CAN", "SDIG", "ADCT", "AGEN", "VRTX", "VKTX", "SAVA", "IOVA", "BBIO", "MDGL", "REGN", "ILMN", "EXAS", "BNTX", "MRNA", "SGEN", "IQV", "TDOC", "BMEA", "SRPT", "CRSP", "EDIT", "BEAM", "NTLA", "VERV", "GRTS", "RLAY", "IRON", "TLRY", "CGC", "AMD", "NVDA", "INTC", "MU", "TXN", "TSM", "ASML", "AMAT", "LRCX", "KLAC", "SNPS", "CDNS", "ARM", "MRVL", "AVGO", "SMCI", "ANET", "TER", "ENTG", "ON", "TSLA", "RIVN", "LCID", "F", "GM", "RACE", "STLA", "ENPH", "SEDG", "FSLR", "PLUG", "CHPT", "RUN", "QS", "NIO", "XPEV", "LI", "BE", "NEE", "BLDP", "FCEL", "DKNG", "PENN", "RCL", "CCL", "NCLH", "AAL", "DAL", "UAL", "LUV", "BKNG", "EXPE", "MAR", "HLT", "GENI", "RSI", "SHOP", "DOCU", "ZM", "DASH", "ABNB", "UBER", "LYFT", "CHWY", "ROKU", "PINS", "SNAP", "EBAY", "ETSY", "RVLV", "META", "GOOGL", "AMZN", "MSFT", "AAPL", "NFLX", "DIS", "PARA", "WBD", "AMC", "GME", "BB", "NOK", "FUBO", "SPCE", "RBLX", "MTCH", "BMBL", "YELP", "TTD", "OPEN", "HOV", "BLND", "HRTX", "MNMD", "FSR", "NKLA", "WKHS", "DNA", "PLBY", "SKLZ", "SENS", "HYLN", "ASTS", "ORBK", "LIDR", "INVZ", "LAZR", "AEVA"]
 
@@ -38,38 +38,27 @@ def analyze_stock(ticker):
         z_score = (vol_attuale - avg_vol) / std_vol
         rsi_val = calculate_rsi(df['Close']).iloc[-1]
         
-        # --- LOGICA 1: SNIPER (Balena Aggressiva) ---
+        # --- LOGICA IBRIDA COSTANTE ---
+        # 1. SNIPER (Volumi esplosivi > 3.0)
         if z_score > 3.0 and cp > lp:
-            msg = (f"🐋 **BALENA DETECTED (Sniper)**\n"
-                   f"Ticker: **{ticker}** | Prezzo: **${cp:.2f}**\n"
-                   f"Z-Score: {z_score:.1f}x | RSI: {rsi_val:.1f}\n"
-                   f"Analisi: Rottura violenta in corso!")
-            send_telegram(msg)
+            send_telegram(f"🐋 **BALENA (Sniper)**\nTicker: **{ticker}** | **${cp:.2f}**\nZ-Score: {z_score:.1f}x | RSI: {rsi_val:.1f}")
             
-        # --- LOGICA 2: ICEBERG (Accumulazione Nascosta) ---
-        # Volume > media ma prezzo stabile (movimento < 0.3%)
-        elif z_score > 1.5 and abs((cp-lp)/lp)*100 < 0.3:
-            stop_loss = cp * 0.95
-            msg = (f"🧊 **ICEBERG DETECTED (Accumulo)**\n"
-                   f"Ticker: **{ticker}** | Prezzo: **${cp:.2f}**\n"
-                   f"Volumi: +{((vol_attuale/avg_vol)-1)*100:.1f}%\n"
-                   f"RSI: {rsi_val:.1f} | Stop Loss: **${stop_loss:.2f}**\n"
-                   f"Analisi: Qualcuno sta comprando senza dare nell'occhio.")
-            send_telegram(msg)
+        # 2. ICEBERG (Accumulo con volumi > 1.5 e prezzo stabile)
+        elif z_score > 1.5 and abs((cp-lp)/lp)*100 < 0.25:
+            send_telegram(f"🧊 **ICEBERG (Accumulo)**\nTicker: **{ticker}** | **${cp:.2f}**\nVolumi: +{((vol_attuale/avg_vol)-1)*100:.1f}%\nRSI: {rsi_val:.1f}")
+
+        # 3. PROFIT CHECK (Solo per il tuo portafoglio)
+        if ticker in MY_PORTFOLIO and rsi_val > 75:
+            send_telegram(f"💰 **PROFIT CHECK: {ticker}**\nRSI: {rsi_val:.1f}\nValuta se incassare i tuoi 50€+!")
 
     except: pass
 
 def main():
-    send_telegram("🚀 **SCANNER IBRIDO (SNIPER + ICEBERG) ATTIVO**\nPronto a scovare ogni movimento istituzionale.")
-    while True:
-        now = datetime.datetime.now()
-        if now.weekday() < 5 and (15 <= now.hour <= 22):
-            for t in set(WATCHLIST + MY_PORTFOLIO):
-                analyze_stock(t)
-                time.sleep(0.3)
-            time.sleep(900)
-        else:
-            time.sleep(60)
+    # Una scansione completa e poi termina (Cron gestisce la ripetizione ogni 15 min)
+    tickers = set(WATCHLIST + MY_PORTFOLIO)
+    for t in tickers:
+        analyze_stock(t)
+        time.sleep(0.4) 
 
 if __name__ == "__main__":
     main()
