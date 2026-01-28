@@ -35,11 +35,9 @@ def calculate_rsi(prices, period=14):
 
 def analyze_stock(ticker):
     try:
-        # Scarichiamo i dati silenziosamente
         df = yf.download(ticker, period="5d", interval="15m", progress=False, threads=False)
-        if df.empty or len(df) < 25: 
-            return
-
+        if df.empty or len(df) < 25: return
+        
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
@@ -55,8 +53,7 @@ def analyze_stock(ticker):
         dist_res = ((res - cp) / cp) * 100
         dist_sup = ((cp - sup) / cp) * 100
 
-        # STAMPA LOG DI CONTROLLO (Questo lo vedrai su GitHub)
-        print(f"Checking {ticker}: Price ${cp:.2f} | Z-Vol: {z_score:.1f} | RSI: {rsi_val:.1f}")
+        print(f"Checking {ticker}: ${cp:.2f} | Z:{z_score:.1f}")
 
         soglia_z = 1.3 if ticker in MY_PORTFOLIO else 2.0
         info_tecnica = f"\n📊 **RSI:** {rsi_val:.1f}\n📈 **Res:** ${res:.2f} ({dist_res:.2f}%)\n🛡️ **Sup:** ${sup:.2f} ({dist_sup:.2f}%)"
@@ -66,35 +63,11 @@ def analyze_stock(ticker):
                 msg = f"🚨 **MOVIMENTO IN USCITA: {ticker}**\nPrezzo: **${cp:.2f}** | Z-Vol: **{z_score:.1f}**" + info_tecnica + f"\n📢 **COSA FARE:** Balene in uscita. Difendi il capitale!"
                 send_telegram(msg)
             elif var_pct_candela < 0.10:
-                msg = f"🧊 **ACCUMULO ISTITUZIONALE: {ticker}**\nPrezzo: **${cp:.2f}** | Z-Vol: **{z_score:.1f}**" + info_tecnica + f"\n📢 **COSA FARE:** Istituzioni caricano. Ottima base se tiene **${sup:.2f}**."
+                msg = f"🧊 **ACCUMULO ISTITUZIONALE: {ticker}**\nPrezzo: **${cp:.2f}** | Z-Vol: **{z_score:.1f}**" + info_tecnica + f"\n📢 **COSA FARE:** Istituzioni caricano. Base se tiene **${sup:.2f}**."
                 send_telegram(msg)
             elif cp > lp and cp > prezzo_ieri:
                 msg = f"🐋 **SWEEP BULLISH: {ticker}**\nPrezzo: **${cp:.2f}** | Z-Vol: **{z_score:.1f}**" + info_tecnica + f"\n📢 **COSA FARE:** Forza confermata verso **${res:.2f}**."
                 send_telegram(msg)
 
         if ticker in MY_PORTFOLIO and rsi_val >= SOGLIA_RSI_EXIT:
-            msg = f"🏁 **ZONA TARGET: {ticker}**\nPrezzo: **${cp:.2f}**" + info_tecnica + f"\n📢 **COSA FARE:** RSI elevato. Massimizza e incassa vicino a **${res:.2f}**."
-            send_telegram(msg)
-
-    except:
-        pass # Ignora errori sui singoli titoli e continua
-
-def main():
-    now = datetime.datetime.now()
-    current_time = int(now.strftime("%H%M"))
-    
-    # REINSERISCI IL FILTRO ORARIO PER NON ESSERE INONDATO DI MESSAGGI
-    if current_time < 1530 or current_time > 2210:
-        print("Borsa chiusa o fuori orario di scansione.")
-        return
-    
-    all_tickers = sorted(list(set(WATCHLIST + MY_PORTFOLIO)))
-    print(f"Inizio scansione di {len(all_tickers)} titoli...")
-    
-    for t in all_tickers:
-        analyze_stock(t)
-        time.sleep(0.4)
-    print("Scansione completata.")
-
-if __name__ == "__main__":
-    main()main()
+            msg = f"🏁 **ZONA TARGET: {ticker}**\nPrezzo: **${cp:.2f}**" +
