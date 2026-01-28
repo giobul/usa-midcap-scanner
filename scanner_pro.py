@@ -93,7 +93,7 @@ def main():
     now = datetime.datetime.now()
     current_time = int(now.strftime("%H%M"))
     # Attivo solo in sessione USA (15:30 - 22:10 ora italiana)
-    if current_time < 1530 or current_time > 2210: return
+    # if current_time < 1530 or current_time > 2210: return
     
     all_tickers = sorted(list(set(WATCHLIST + MY_PORTFOLIO)))
     for t in all_tickers:
