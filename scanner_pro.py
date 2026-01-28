@@ -8,7 +8,6 @@ import time
 # --- 1. CONFIGURAZIONE ---
 MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "QUBT", "DKNG", "AI", "BBAI", "ADCT", "AGEN"]
 WATCHLIST = ["STNE", "PATH", "RGTI", "QUBT", "IONQ", "C3AI", "AI", "BBAI", "PLTR", "SOUN", "SNOW", "NET", "CRWD", "DDOG", "ZS", "OKTA", "MDB", "TEAM", "S", "U", "ADBE", "CRM", "WDAY", "NOW", "NU", "PAGS", "MELI", "SOFI", "UPST", "AFRM", "HOOD", "SQ", "PYPL", "COIN", "FLYV", "MARQ", "BILL", "TOST", "DAVE", "MQ", "LC", "BABA", "JD", "PDUO", "MARA", "RIOT", "CLSK", "HUT", "BITF", "MSTR", "WULF", "CIFR", "ANY", "BTBT", "CAN", "SDIG", "ADCT", "AGEN", "VRTX", "VKTX", "SAVA", "IOVA", "BBIO", "MDGL", "REGN", "ILMN", "EXAS", "BNTX", "MRNA", "SGEN", "IQV", "TDOC", "BMEA", "SRPT", "CRSP", "EDIT", "BEAM", "NTLA", "VERV", "GRTS", "RLAY", "IRON", "TLRY", "CGC", "AMD", "NVDA", "INTC", "MU", "TXN", "TSM", "ASML", "AMAT", "LRCX", "KLAC", "SNPS", "CDNS", "ARM", "MRVL", "AVGO", "SMCI", "ANET", "TER", "ENTG", "ON", "TSLA", "RIVN", "LCID", "F", "GM", "RACE", "STLA", "ENPH", "SEDG", "FSLR", "PLUG", "CHPT", "RUN", "QS", "NIO", "XPEV", "LI", "BE", "NEE", "BLDP", "FCEL", "DKNG", "PENN", "RCL", "CCL", "NCLH", "AAL", "DAL", "UAL", "LUV", "BKNG", "EXPE", "MAR", "HLT", "GENI", "RSI", "SHOP", "DOCU", "ZM", "DASH", "ABNB", "UBER", "LYFT", "CHWY", "ROKU", "PINS", "SNAP", "EBAY", "ETSY", "RVLV", "META", "GOOGL", "AMZN", "MSFT", "AAPL", "NFLX", "DIS", "PARA", "WBD", "AMC", "GME", "BB", "NOK", "FUBO", "SPCE", "RBLX", "MTCH", "BMBL", "YELP", "TTD", "OPEN", "HOV", "BLND", "HRTX", "MNMD", "FSR", "NKLA", "WKHS", "DNA", "PLBY", "SKLZ", "SENS", "HYLN", "ASTS", "ORBK", "LIDR", "INVZ", "LAZR", "AEVA"]
-ORARI_CACCIA = [15, 16, 17, 18, 19, 20, 21] # Estesi per monitoraggio costante
 
 def send_telegram(message):
     token = os.getenv("TELEGRAM_TOKEN")
@@ -35,7 +34,7 @@ def get_market_sentiment():
         return f"⚪ NEUTRAL ({rsi_spy:.1f})"
     except: return "⚪ NEUTRAL"
 
-def analyze_stock(ticker, is_caccia, market_sentiment):
+def analyze_stock(ticker, market_sentiment):
     try:
         df = yf.download(ticker, period="20d", interval="15m", progress=False)
         if df.empty or len(df) < 20: return
@@ -60,16 +59,26 @@ def analyze_stock(ticker, is_caccia, market_sentiment):
         support = float(df['Low'].tail(50).min())
         dist_supp = ((cp - support) / support) * 100
 
-        # --- MODIFICA TEST Z-SCORE ---
-        # Abbassato a 1.5 per vedere se arrivano messaggi
-        trigger = (z_score > 1.5)
-
-        if trigger:
-            score = 4 # Base
-            if z_score > 2.0 : score += 2
+        # TRIGGER TEST (Z-Score > 1.5 per rilevare attività istituzionale)
+        if z_score > 1.5:
+            score = 4 
+            if z_score > 2.5 : score += 2
             if is_breaking_out: score += 2
             if "BULLISH" in market_sentiment: score += 1
             if rsi > 70 or is_extended: score -= 1 
             
-            # DEFINIZIONE TIPO
-            mov_p = abs(((cp - df['Close'].
+            # DETERMINAZIONE TIPO MOVIMENTO
+            if cp > df['Close'].iloc[-2]: tipo = "🐋 BALENA / CALL SWEEP"
+            else: tipo = "⚠️ VOLUME SOSPETTO"
+
+            semaforo = "🟢 OTTIMO" if dist_supp < 3.0 else "🟡 RISCHIOSO"
+            alert_speed = "⚠️ ESTESA" if is_extended else "✅ Sano"
+
+            if score >= 5:
+                msg = (f"{tipo} | {semaforo}\n"
+                       f"📊 Ticker: **{ticker}**\n"
+                       f"━━━━━━━━━━━━━━━\n"
+                       f"🔥 Forza: **{z_score:.1f}x sopra media**\n"
+                       f"⚡ Speed: **{last_candle_move:+.2f}%**\n"
+                       f"🎯 RSI: {rsi:.1f} | **SCORE: {score}/10**\n"
+                       f"📈 Breakout: {'SÌ' if is_breaking_out else 'NO'
