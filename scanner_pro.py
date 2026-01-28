@@ -87,9 +87,9 @@ def main():
     current_time = int(now.strftime("%H%M"))
     
     # Rimuovi il # sotto per attivare il blocco orario dopo il test
-    #if current_time < 1530 or current_time > 2210:
-        #print("Borsa chiusa o fuori orario.")
-        #return
+    if current_time < 1530 or current_time > 2210:
+        print("Borsa chiusa o fuori orario.")
+        return
         
     all_tickers = sorted(list(set(WATCHLIST + MY_PORTFOLIO)))
     for t in all_tickers:
