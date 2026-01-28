@@ -36,7 +36,7 @@ def calculate_rsi(prices, period=14):
 def analyze_stock(ticker):
     try:
         # Carico dati per trend e livelli
-df = yf.download(ticker, period="5d", interval="15m", progress=False)
+        df = yf.download(ticker, period="5d", interval="15m", progress=False)
         
         if df.empty or len(df) < 25: 
             return
