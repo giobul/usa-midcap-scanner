@@ -15,8 +15,10 @@ def send_telegram(message):
     if not token or not chat_id: return
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {"chat_id": chat_id, "text": message, "parse_mode": "Markdown"}
-    try: requests.post(url, json=payload, timeout=10)
-    except: pass
+    try: 
+        requests.post(url, json=payload, timeout=10)
+    except: 
+        pass
 
 def calculate_rsi(prices, period=14):
     delta = prices.diff()
@@ -42,7 +44,7 @@ def analyze_stock(ticker, market_sentiment):
         cp = float(df['Close'].iloc[-1])
         open_p = float(df['Open'].iloc[-1])
         vol_attuale = float(df['Volume'].iloc[-1])
-        rsi = calculate_rsi(df['Close']).iloc[-1]
+        rsi_val = calculate_rsi(df['Close']).iloc[-1]
         
         # 1. ANALISI VOLUMETRICA (Z-SCORE)
         avg_vol = df['Volume'].mean()
@@ -59,17 +61,18 @@ def analyze_stock(ticker, market_sentiment):
         support = float(df['Low'].tail(50).min())
         dist_supp = ((cp - support) / support) * 100
 
-        # TRIGGER TEST (Z-Score > 1.5 per rilevare attività istituzionale)
+        # TRIGGER TEST (Z-Score > 1.5)
         if z_score > 1.5:
             score = 4 
             if z_score > 2.5 : score += 2
             if is_breaking_out: score += 2
             if "BULLISH" in market_sentiment: score += 1
-            if rsi > 70 or is_extended: score -= 1 
+            if rsi_val > 70 or is_extended: score -= 1 
             
-            # DETERMINAZIONE TIPO MOVIMENTO
-            if cp > df['Close'].iloc[-2]: tipo = "🐋 BALENA / CALL SWEEP"
-            else: tipo = "⚠️ VOLUME SOSPETTO"
+            if cp > df['Close'].iloc[-2]: 
+                tipo = "🐋 BALENA / CALL SWEEP"
+            else: 
+                tipo = "⚠️ VOLUME SOSPETTO"
 
             semaforo = "🟢 OTTIMO" if dist_supp < 3.0 else "🟡 RISCHIOSO"
             alert_speed = "⚠️ ESTESA" if is_extended else "✅ Sano"
@@ -80,5 +83,37 @@ def analyze_stock(ticker, market_sentiment):
                        f"━━━━━━━━━━━━━━━\n"
                        f"🔥 Forza: **{z_score:.1f}x sopra media**\n"
                        f"⚡ Speed: **{last_candle_move:+.2f}%**\n"
-                       f"🎯 RSI: {rsi:.1f} | **SCORE: {score}/10**\n"
-                       f"📈 Breakout: {'SÌ' if is_breaking_out else 'NO'
+                       f"🎯 RSI: {rsi_val:.1f} | **SCORE: {score}/10**\n"
+                       f"📈 Breakout: {'SÌ' if is_breaking_out else 'NO'}")
+                send_telegram(msg)
+
+        # EXIT ALERT
+        if ticker in MY_PORTFOLIO and rsi_val > 78:
+            send_telegram(f"⚠️ **RSI ESTREMO: {ticker}**\n📈 RSI: {rsi_val:.2f}\nValuta di incassare profitto.")
+
+    except: 
+        pass
+
+def main():
+    # Messaggio di benvenuto immediato
+    send_telegram("🚀 **SCANNER 10/10 ATTIVO**\nMonitoraggio 193 titoli avviato.\nCheck ogni 15 minuti.")
+    
+    while True:
+        now = datetime.datetime.now()
+        # Orario borsa USA (15:30 - 22:00 ITA)
+        if now.weekday() < 5 and (15 <= now.hour <= 22):
+            sentiment = get_market_sentiment()
+            tickers = list(set(WATCHLIST + MY_PORTFOLIO))
+            
+            for t in tickers:
+                analyze_stock(t, sentiment)
+                time.sleep(0.3)
+            
+            print(f"Scansione completata alle {now.strftime('%H:%M:%S')}")
+            time.sleep(900)
+        else:
+            print("Mercato chiuso. In attesa...")
+            time.sleep(60)
+
+if __name__ == "__main__":
+    main()
