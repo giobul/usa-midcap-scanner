@@ -7,7 +7,7 @@ import datetime
 import time
 import logging
 
-# Silenziamo gli errori di sistema di yfinance per pulire il log di GitHub
+# Silenziamo gli errori di sistema di yfinance
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
 
 # --- CONFIGURAZIONE ---
@@ -37,7 +37,6 @@ def analyze_stock(ticker):
     try:
         df = yf.download(ticker, period="5d", interval="15m", progress=False, threads=False)
         if df.empty or len(df) < 25: return
-        
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
@@ -56,18 +55,35 @@ def analyze_stock(ticker):
         print(f"Checking {ticker}: ${cp:.2f} | Z:{z_score:.1f}")
 
         soglia_z = 1.3 if ticker in MY_PORTFOLIO else 2.0
-        info_tecnica = f"\n📊 **RSI:** {rsi_val:.1f}\n📈 **Res:** ${res:.2f} ({dist_res:.2f}%)\n🛡️ **Sup:** ${sup:.2f} ({dist_sup:.2f}%)"
+        info_tecnica = f"\n📊 RSI: {rsi_val:.1f}\n📈 Res: ${res:.2f} ({dist_res:.2f}%)\n🛡️ Sup: ${sup:.2f} ({dist_sup:.2f}%)"
 
         if z_score > soglia_z:
             if cp < lp and ticker in MY_PORTFOLIO:
-                msg = f"🚨 **MOVIMENTO IN USCITA: {ticker}**\nPrezzo: **${cp:.2f}** | Z-Vol: **{z_score:.1f}**" + info_tecnica + f"\n📢 **COSA FARE:** Balene in uscita. Difendi il capitale!"
+                msg = f"🚨 **MOVIMENTO IN USCITA: {ticker}**\nPrezzo: ${cp:.2f} | Z-Vol: {z_score:.1f}" + info_tecnica
                 send_telegram(msg)
             elif var_pct_candela < 0.10:
-                msg = f"🧊 **ACCUMULO ISTITUZIONALE: {ticker}**\nPrezzo: **${cp:.2f}** | Z-Vol: **{z_score:.1f}**" + info_tecnica + f"\n📢 **COSA FARE:** Istituzioni caricano. Base se tiene **${sup:.2f}**."
+                msg = f"🧊 **ACCUMULO ISTITUZIONALE: {ticker}**\nPrezzo: ${cp:.2f} | Z-Vol: {z_score:.1f}" + info_tecnica
                 send_telegram(msg)
             elif cp > lp and cp > prezzo_ieri:
-                msg = f"🐋 **SWEEP BULLISH: {ticker}**\nPrezzo: **${cp:.2f}** | Z-Vol: **{z_score:.1f}**" + info_tecnica + f"\n📢 **COSA FARE:** Forza confermata verso **${res:.2f}**."
+                msg = f"🐋 **SWEEP BULLISH: {ticker}**\nPrezzo: ${cp:.2f} | Z-Vol: {z_score:.1f}" + info_tecnica
                 send_telegram(msg)
 
         if ticker in MY_PORTFOLIO and rsi_val >= SOGLIA_RSI_EXIT:
-            msg = f"🏁 **ZONA TARGET: {ticker}**\nPrezzo: **${cp:.2f}**" +
+            msg = f"🏁 **ZONA TARGET: {ticker}**\nPrezzo: ${cp:.2f}" + info_tecnica
+            send_telegram(msg)
+    except:
+        pass
+
+def main():
+    now = datetime.datetime.now()
+    current_time = int(now.strftime("%H%M"))
+    if current_time < 1530 or current_time > 2210:
+        print("Borsa chiusa o fuori orario.")
+        return
+    all_tickers = sorted(list(set(WATCHLIST + MY_PORTFOLIO)))
+    for t in all_tickers:
+        analyze_stock(t)
+        time.sleep(0.4)
+
+if __name__ == "__main__":
+    main()
