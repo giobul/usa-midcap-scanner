@@ -24,6 +24,17 @@ def send_telegram(message):
     try: requests.post(url, json=payload, timeout=10)
     except: pass
 
+def get_market_sentiment():
+    try:
+        # Analizziamo il QQQ (Nasdaq 100) per il contesto Tech/Growth
+        idx = yf.download("QQQ", period="2d", interval="1d", progress=False)
+        if len(idx) < 2: return "⚖️ NEUTRALE"
+        change = ((idx['Close'].iloc[-1] - idx['Close'].iloc[-2]) / idx['Close'].iloc[-2]) * 100
+        if change > 0.5: return "🚀 BULLISH"
+        if change < -0.5: return "📉 BEARISH"
+        return "⚖️ NEUTRALE"
+    except: return "❓ INCERTO"
+
 def calculate_rsi(prices, period=14):
     delta = prices.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
@@ -31,7 +42,7 @@ def calculate_rsi(prices, period=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-def analyze_stock(ticker):
+def analyze_stock(ticker, sentiment):
     try:
         df = yf.download(ticker, period="5d", interval="15m", progress=False, threads=False)
         if df.empty or len(df) < 25: return
@@ -46,41 +57,38 @@ def analyze_stock(ticker):
         res = float(df['High'].iloc[-21:-1].max())
         sup = float(df['Low'].iloc[-21:-1].min())
         
-        # --- NOVITÀ: VOLATILITÀ (SQUEEZE) ---
+        # Check Squeeze
         std_dev = df['Close'].tail(20).std()
         avg_price = df['Close'].tail(20).mean()
-        is_squeeze = (std_dev / avg_price) * 100 < 0.5  # Prezzo iper-compresso
-
-        print(f"Checking {ticker}: ${cp:.2f} | Z:{z_score:.1f}")
+        is_squeeze = (std_dev / avg_price) * 100 < 0.4 
 
         soglia_z = 1.3 if ticker in MY_PORTFOLIO else 2.0
+        header = f"🌍 **CLIMA MERCATO:** {sentiment}\n"
         info_tecnica = f"\n📊 RSI: {rsi_val:.1f}\n📈 Res: ${res:.2f}\n🛡️ Sup: ${sup:.2f}"
 
         if z_score > soglia_z:
-            # DARK POOL
+            # 1. DARK POOL
             if z_score > 4.0 and var_pct_candela <= 0.30:
-                msg = f"🌑 **DARK POOL DETECTED: {ticker}**\nPrezzo: ${cp:.2f} | **Z-Vol: {z_score:.1f}**" + info_tecnica + "\n📢 **COSA FARE:** Passaggio di blocchi massicci. Qualcosa di grosso bolle in pentola!"
+                msg = f"{header}🌑 **DARK POOL DETECTED: {ticker}**\nZ-Vol: {z_score:.1f}" + info_tecnica + "\n📢 **COSA FARE:** Scambio massiccio fuori mercato. Segnale di forza se il mercato è BULLISH."
                 send_telegram(msg)
-            # ICEBERG (Filtro STNE 0.50%)
+            # 2. ICEBERG (Soglia 0.50% per STNE)
             elif var_pct_candela <= 0.50:
-                msg = f"🧊 **ACCUMULO ISTITUZIONALE: {ticker}**\nPrezzo: ${cp:.2f} | Z-Vol: {z_score:.1f}" + info_tecnica + "\n📢 **COSA FARE:** Balene in accumulo. Ottimo punto d'ingresso se tiene il supporto."
+                msg = f"{header}🧊 **ACCUMULO ISTITUZIONALE: {ticker}**\nZ-Vol: {z_score:.1f}" + info_tecnica + "\n📢 **COSA FARE:** Balene in accumulo. Ottimo setup se il mercato regge."
                 send_telegram(msg)
-            # SWEEP
+            # 3. SWEEP
             elif cp > lp:
-                msg = f"🐋 **SWEEP BULLISH: {ticker}**\nPrezzo: ${cp:.2f}" + info_tecnica + "\n📢 **COSA FARE:** Forza confermata. Gli acquirenti spazzano le resistenze!"
+                msg = f"{header}🐋 **SWEEP BULLISH: {ticker}**\nPrezzo: ${cp:.2f}" + info_tecnica + "\n📢 **COSA FARE:** Aggressività istituzionale in corso!"
                 send_telegram(msg)
-            # USCITA (Solo Portfolio)
+            # 4. USCITA (Solo Portfolio)
             elif cp < lp and ticker in MY_PORTFOLIO:
-                msg = f"🚨 **MOVIMENTO IN USCITA: {ticker}**" + info_tecnica + "\n📢 **COSA FARE:** Balene in uscita. Proteggi il capitale!"
+                msg = f"{header}🚨 **MOVIMENTO IN USCITA: {ticker}**" + info_tecnica + "\n📢 **COSA FARE:** Balene in vendita. Proteggi il capitale, specialmente se il mercato è BEARISH!"
                 send_telegram(msg)
 
-        # NOVITÀ: SQUEEZE ALERT (Indipendente dal volume)
         if is_squeeze and ticker in MY_PORTFOLIO:
-            send_telegram(f"⚡ **SQUEEZE ALERT: {ticker}**\nPrezzo: ${cp:.2f}\n📢 **COSA FARE:** Volatilità ai minimi. Una violenta esplosione (su o giù) è imminente!")
+            send_telegram(f"{header}⚡ **SQUEEZE ALERT: {ticker}**\nPrezzo: ${cp:.2f}\n📢 **COSA FARE:** Prezzo compresso. Esplosione imminente!")
 
-        # TARGET PROFIT
         if ticker in MY_PORTFOLIO and rsi_val >= SOGLIA_RSI_EXIT:
-            send_telegram(f"🏁 **ZONA TARGET: {ticker}**\nPrezzo: ${cp:.2f}" + info_tecnica + f"\n📢 **COSA FARE:** RSI alto ({rsi_val:.1f}). Se profitto > 50€, valuta di incassare!")
+            send_telegram(f"{header}🏁 **ZONA TARGET: {ticker}**\nPrezzo: ${cp:.2f}" + info_tecnica + f"\n📢 **COSA FARE:** RSI alto. Se sei sopra i 50€ di gain, valuta il profitto!")
 
     except: pass
 
@@ -88,9 +96,11 @@ def main():
     now = datetime.datetime.now()
     current_time = int(now.strftime("%H%M"))
     if current_time < 1530 or current_time > 2210: return
+    
+    sentiment = get_market_sentiment()
     all_tickers = sorted(list(set(WATCHLIST + MY_PORTFOLIO)))
     for t in all_tickers:
-        analyze_stock(t)
+        analyze_stock(t, sentiment)
         time.sleep(0.4)
 
 if __name__ == "__main__":
