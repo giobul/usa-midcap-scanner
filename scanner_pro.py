@@ -78,8 +78,8 @@ def main():
     now = datetime.datetime.now()
     current_time = int(now.strftime("%H%M"))
     # if current_time < 1530 or current_time > 2210:
-        print("Borsa chiusa o fuori orario.")
-        return
+       #print("Borsa chiusa o fuori orario.")
+        #return
     all_tickers = sorted(list(set(WATCHLIST + MY_PORTFOLIO)))
     for t in all_tickers:
         analyze_stock(t)
