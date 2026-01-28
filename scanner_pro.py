@@ -36,21 +36,31 @@ def calculate_rsi(prices, period=14):
 def analyze_stock(ticker):
     try:
         # Carico dati per trend e livelli
-        df = yf.download(ticker, period="5d", interval="15m", progress=False)
-        if df.empty or len(df) < 25: return
+df = yf.download(ticker, period="5d", interval="15m", progress=False)
         
-        # Variabili di base
-        prezzo_ieri = float(df['Close'].iloc[-40]) # Riferimento giorno precedente
-        cp, lp = float(df['Close'].iloc[-1]), float(df['Close'].iloc[-2])
+        if df.empty or len(df) < 25: 
+            return
+        
+        # --- FIX PER ERRORE 'SERIES' ---
+        # Usiamo .iloc[-1] e poi .item() per essere sicuri di avere un numero singolo
+        cp = float(df['Close'].iloc[-1])
+        lp = float(df['Close'].iloc[-2])
+        
+        # Per il volume e altri calcoli
         vol_attuale = float(df['Volume'].iloc[-1])
-        avg_vol = df['Volume'].rolling(window=20).mean().iloc[-1]
-        rsi_val = calculate_rsi(df['Close']).iloc[-1]
+        avg_vol = float(df['Volume'].rolling(window=20).mean().iloc[-1])
+        
+        # Prezzo di ieri (40 candele da 15 min fa sono circa l'apertura di ieri)
+        prezzo_ieri = float(df['Close'].iloc[0]) 
+        
+        # RSI e variazioni
+        rsi_series = calculate_rsi(df['Close'])
+        rsi_val = float(rsi_series.iloc[-1])
         var_pct = abs((cp - lp) / lp) * 100
         
-        # Supporti e Resistenze (ultime 5 ore)
+        # Supporti e Resistenze
         resistenza = float(df['High'].iloc[-21:-1].max())
         supporto = float(df['Low'].iloc[-21:-1].min())
-
         # --- LOGICA VOLUME ANOMALO ---
         if vol_attuale > (avg_vol * SOGLIA_VOL_SWEEP):
             
