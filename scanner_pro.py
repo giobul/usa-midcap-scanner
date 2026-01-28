@@ -6,10 +6,7 @@ import datetime
 import time
 
 # --- CONFIGURAZIONE ---
-# Titoli che possiedi (Ricevono Exit e Bearish Alert)
 MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "QUBT", "DKNG", "AI", "BBAI", "ADCT", "AGEN", "STX"]
-
-# Titoli che osservi
 WATCHLIST = ["STX", "IONQ", "PLTR", "SOUN", "SNOW", "NET", "CRWD", "DDOG", "ZS", "OKTA", "MDB", "TEAM", "S", "U", "ADBE", "CRM", "WDAY", "NOW", "NU", "PAGS", "MELI", "SOFI", "UPST", "AFRM", "HOOD", "PYPL", "COIN", "BILL", "TOST", "DAVE", "MQ", "LC", "BABA", "JD", "PDD", "MARA", "RIOT", "CLSK", "HUT", "BITF", "MSTR", "WULF", "CIFR", "ANY", "BTBT", "CAN", "VRTX", "VKTX", "SAVA", "IOVA", "BBIO", "MDGL", "REGN", "ILMN", "EXAS", "BNTX", "MRNA", "IQV", "TDOC", "BMEA", "SRPT", "CRSP", "EDIT", "BEAM", "NTLA", "RLAY", "IRON", "TLRY", "CGC", "AMD", "NVDA", "INTC", "MU", "TXN", "TSM", "ASML", "AMAT", "LRCX", "KLAC", "SNPS", "CDNS", "ARM", "MRVL", "AVGO", "SMCI", "ANET", "TER", "ENTG", "ON", "TSLA", "RIVN", "LCID", "F", "GM", "RACE", "STLA", "ENPH", "SEDG", "FSLR", "PLUG", "CHPT", "RUN", "QS", "NIO", "XPEV", "LI", "BE", "NEE", "BLDP", "FCEL", "PENN", "RCL", "CCL", "NCLH", "AAL", "DAL", "UAL", "LUV", "BKNG", "EXPE", "MAR", "HLT", "GENI", "RSI", "SHOP", "DOCU", "ZM", "DASH", "ABNB", "UBER", "LYFT", "CHWY", "ROKU", "PINS", "SNAP", "EBAY", "ETSY", "RVLV", "META", "GOOGL", "AMZN", "MSFT", "AAPL", "NFLX", "DIS", "WBD", "AMC", "GME", "BB", "NOK", "FUBO", "SPCE", "RBLX", "MTCH", "BMBL", "YELP", "TTD", "OPEN", "HOV", "BLND", "HRTX", "MNMD", "WKHS", "DNA", "PLBY", "SKLZ", "SENS", "HYLN", "ASTS", "INVZ", "AEVA", "VRT", "ETN", "POWI", "RMBS", "OKLO", "SMR", "HIMS", "CLVT", "LRN", "GCT"]
 
 SOGLIA_RSI_EXIT = 70.0  
@@ -35,13 +32,18 @@ def calculate_rsi(prices, period=14):
 
 def analyze_stock(ticker):
     try:
-        # 1. Download dati (Versione compatibile)
+        # 1. Download
         df = yf.download(ticker, period="5d", interval="15m", progress=False)
         
         if df.empty or len(df) < 25: 
             return
-        
-        # 2. Estrazione valori singoli (Fix Errore Series)
+
+        # --- FIX STRUTTURA DATI ---
+        # Se yfinance restituisce colonne MultiIndex, le appiattiamo
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+
+        # 2. Estrazione sicura dei valori (prendiamo l'ultimo valore e lo convertiamo in float)
         cp = float(df['Close'].iloc[-1])
         lp = float(df['Close'].iloc[-2])
         vol_attuale = float(df['Volume'].iloc[-1])
@@ -51,39 +53,31 @@ def analyze_stock(ticker):
         rsi_series = calculate_rsi(df['Close'])
         rsi_val = float(rsi_series.iloc[-1])
         
-        # Variabili aggiuntive
+        # Altri dati
         prezzo_ieri = float(df['Close'].iloc[0]) 
         var_pct_candela = abs((cp - lp) / lp) * 100
         resistenza = float(df['High'].iloc[-21:-1].max())
         supporto = float(df['Low'].iloc[-21:-1].min())
 
-        # 3. Log di controllo nel terminale GitHub
+        # 3. Log di controllo
         print(f"[{ticker}] P: {cp:.2f} | RSI: {rsi_val:.1f} | Vol: {vol_attuale/avg_vol:.1f}x")
 
         # 4. LOGICA ALERT
         if vol_attuale > (avg_vol * SOGLIA_VOL_SWEEP):
-            
-            # 🌑 DARK POOL
             if var_pct_candela < 0.05 and vol_attuale > (avg_vol * 3.0):
                 send_telegram(f"🌑 **DARK POOL PRINT: {ticker}**\nPrezzo: **${cp:.2f}** | Vol: {vol_attuale/avg_vol:.1f}x")
-            
-            # 🧊 ICEBERG
             elif var_pct_candela < 0.10:
                 send_telegram(f"🧊 **ICEBERG ACCUMULATION: {ticker}**\nPrezzo: **${cp:.2f}** | Vol: {vol_attuale/avg_vol:.1f}x")
-            
-            # 🐋 SWEEP BULLISH (Vero o Falso)
             elif cp > lp:
                 if cp > prezzo_ieri:
                     status = f"📈 BREAKOUT: Sopra ${resistenza:.2f}" if cp > resistenza else "🔍 Forza in salita"
                     send_telegram(f"🐋 **TRUE BULLISH SWEEP: {ticker}**\nPrezzo: **${cp:.2f}** | {status} ✅")
                 else:
                     send_telegram(f"⚠️ **FALSE BULLISH SWEEP: {ticker}**\n(Technical Rebound) **DO NOT TOUCH** 🚫")
-            
-            # 🚨 BEARISH SWEEP (Solo Portfolio)
             elif cp < lp and ticker in MY_PORTFOLIO:
                 send_telegram(f"🚨 **BEARISH SWEEP: {ticker}**\nPrezzo: **${cp:.2f}** | Balene in uscita! ⚠️")
 
-        # 5. STRATEGIC EXIT (Solo Portfolio)
+        # 5. STRATEGIC EXIT
         if ticker in MY_PORTFOLIO and rsi_val >= SOGLIA_RSI_EXIT:
             send_telegram(f"🏁 **STRATEGIC EXIT: {ticker}**\nPrezzo: **${cp:.2f}** | RSI: **{rsi_val:.1f}** 🔥")
 
