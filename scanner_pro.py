@@ -5,9 +5,10 @@ import requests
 import time
 import datetime
 
-# --- CONFIGURAZIONE ---
+# --- CONFIGURAZIONE PULITA ---
 MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "QUBT", "DKNG", "AI", "BBAI", "ADCT", "AGEN"]
-WATCHLIST = ["STNE", "PATH", "RGTI", "QUBT", "IONQ", "C3AI", "AI", "BBAI", "PLTR", "SOUN", "SNOW", "NET", "CRWD", "DDOG", "ZS", "OKTA", "MDB", "TEAM", "S", "U", "ADBE", "CRM", "WDAY", "NOW", "NU", "PAGS", "MELI", "SOFI", "UPST", "AFRM", "HOOD", "SQ", "PYPL", "COIN", "FLYV", "MARQ", "BILL", "TOST", "DAVE", "MQ", "LC", "BABA", "JD", "PDUO", "MARA", "RIOT", "CLSK", "HUT", "BITF", "MSTR", "WULF", "CIFR", "ANY", "BTBT", "CAN", "SDIG", "ADCT", "AGEN", "VRTX", "VKTX", "SAVA", "IOVA", "BBIO", "MDGL", "REGN", "ILMN", "EXAS", "BNTX", "MRNA", "SGEN", "IQV", "TDOC", "BMEA", "SRPT", "CRSP", "EDIT", "BEAM", "NTLA", "VERV", "GRTS", "RLAY", "IRON", "TLRY", "CGC", "AMD", "NVDA", "INTC", "MU", "TXN", "TSM", "ASML", "AMAT", "LRCX", "KLAC", "SNPS", "CDNS", "ARM", "MRVL", "AVGO", "SMCI", "ANET", "TER", "ENTG", "ON", "TSLA", "RIVN", "LCID", "F", "GM", "RACE", "STLA", "ENPH", "SEDG", "FSLR", "PLUG", "CHPT", "RUN", "QS", "NIO", "XPEV", "LI", "BE", "NEE", "BLDP", "FCEL", "DKNG", "PENN", "RCL", "CCL", "NCLH", "AAL", "DAL", "UAL", "LUV", "BKNG", "EXPE", "MAR", "HLT", "GENI", "RSI", "SHOP", "DOCU", "ZM", "DASH", "ABNB", "UBER", "LYFT", "CHWY", "ROKU", "PINS", "SNAP", "EBAY", "ETSY", "RVLV", "META", "GOOGL", "AMZN", "MSFT", "AAPL", "NFLX", "DIS", "PARA", "WBD", "AMC", "GME", "BB", "NOK", "FUBO", "SPCE", "RBLX", "MTCH", "BMBL", "YELP", "TTD", "OPEN", "HOV", "BLND", "HRTX", "MNMD", "FSR", "NKLA", "WKHS", "DNA", "PLBY", "SKLZ", "SENS", "HYLN", "ASTS", "ORBK", "LIDR", "INVZ", "LAZR", "AEVA"]
+# Rimosse le "morte" segnalate dai tuoi log per velocizzare GitHub
+WATCHLIST = ["STNE", "PATH", "RGTI", "QUBT", "IONQ", "AI", "BBAI", "PLTR", "SOUN", "SNOW", "NET", "CRWD", "DDOG", "ZS", "OKTA", "MDB", "TEAM", "S", "U", "ADBE", "CRM", "WDAY", "NOW", "NU", "PAGS", "MELI", "SOFI", "UPST", "AFRM", "HOOD", "PYPL", "COIN", "MARQ", "BILL", "TOST", "DAVE", "MQ", "LC", "BABA", "JD", "PDD", "MARA", "RIOT", "CLSK", "HUT", "BITF", "MSTR", "WULF", "CIFR", "ANY", "BTBT", "CAN", "VRTX", "VKTX", "SAVA", "IOVA", "BBIO", "MDGL", "REGN", "ILMN", "EXAS", "BNTX", "MRNA", "IQV", "TDOC", "BMEA", "SRPT", "CRSP", "EDIT", "BEAM", "NTLA", "VERV", "RLAY", "IRON", "TLRY", "CGC", "AMD", "NVDA", "INTC", "MU", "TXN", "TSM", "ASML", "AMAT", "LRCX", "KLAC", "SNPS", "CDNS", "ARM", "MRVL", "AVGO", "SMCI", "ANET", "TER", "ENTG", "ON", "TSLA", "RIVN", "LCID", "F", "GM", "RACE", "STLA", "ENPH", "SEDG", "FSLR", "PLUG", "CHPT", "RUN", "QS", "NIO", "XPEV", "LI", "BE", "NEE", "BLDP", "FCEL", "DKNG", "PENN", "RCL", "CCL", "NCLH", "AAL", "DAL", "UAL", "LUV", "BKNG", "EXPE", "MAR", "HLT", "GENI", "RSI", "SHOP", "DOCU", "ZM", "DASH", "ABNB", "UBER", "LYFT", "CHWY", "ROKU", "PINS", "SNAP", "EBAY", "ETSY", "RVLV", "META", "GOOGL", "AMZN", "MSFT", "AAPL", "NFLX", "DIS", "WBD", "AMC", "GME", "BB", "NOK", "FUBO", "SPCE", "RBLX", "MTCH", "BMBL", "YELP", "TTD", "OPEN", "HOV", "BLND", "HRTX", "MNMD", "WKHS", "DNA", "PLBY", "SKLZ", "SENS", "HYLN", "ASTS", "INVZ", "AEVA"]
 
 def send_telegram(message):
     token = os.getenv("TELEGRAM_TOKEN")
@@ -27,6 +28,7 @@ def calculate_rsi(prices, period=14):
 
 def analyze_stock(ticker):
     try:
+        # Progress=False evita di sporcare i log di GitHub
         df = yf.download(ticker, period="20d", interval="15m", progress=False)
         if df.empty or len(df) < 30: return
         
@@ -38,27 +40,34 @@ def analyze_stock(ticker):
         z_score = (vol_attuale - avg_vol) / std_vol
         rsi_val = calculate_rsi(df['Close']).iloc[-1]
         
-        # --- LOGICA IBRIDA COSTANTE ---
-        # 1. SNIPER (Volumi esplosivi > 3.0)
+        # LOGICA SNIPER
         if z_score > 3.0 and cp > lp:
             send_telegram(f"🐋 **BALENA (Sniper)**\nTicker: **{ticker}** | **${cp:.2f}**\nZ-Score: {z_score:.1f}x | RSI: {rsi_val:.1f}")
+            print(f"ALERT SNIPER: {ticker}")
             
-        # 2. ICEBERG (Accumulo con volumi > 1.5 e prezzo stabile)
+        # LOGICA ICEBERG
         elif z_score > 1.5 and abs((cp-lp)/lp)*100 < 0.25:
             send_telegram(f"🧊 **ICEBERG (Accumulo)**\nTicker: **{ticker}** | **${cp:.2f}**\nVolumi: +{((vol_attuale/avg_vol)-1)*100:.1f}%\nRSI: {rsi_val:.1f}")
+            print(f"ALERT ICEBERG: {ticker}")
 
-        # 3. PROFIT CHECK (Solo per il tuo portafoglio)
+        # PROFIT CHECK
         if ticker in MY_PORTFOLIO and rsi_val > 75:
             send_telegram(f"💰 **PROFIT CHECK: {ticker}**\nRSI: {rsi_val:.1f}\nValuta se incassare i tuoi 50€+!")
+            print(f"ALERT PROFIT: {ticker}")
 
     except: pass
 
 def main():
-    # Una scansione completa e poi termina (Cron gestisce la ripetizione ogni 15 min)
+    print(f"--- Inizio Scansione {datetime.datetime.now()} ---")
     tickers = set(WATCHLIST + MY_PORTFOLIO)
+    count = 0
     for t in tickers:
         analyze_stock(t)
+        count += 1
+        if count % 25 == 0:
+            print(f"Avanzamento: {count}/{len(tickers)} titoli controllati...")
         time.sleep(0.4) 
+    print(f"--- Scansione completata con successo alle {datetime.datetime.now()} ---")
 
 if __name__ == "__main__":
     main()
