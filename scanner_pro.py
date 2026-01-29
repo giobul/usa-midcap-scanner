@@ -1,110 +1,130 @@
 import yfinance as yf
 import pandas as pd
-import numpy as np
 import datetime
 import requests
-import time
 import os
+import time
 import io
 
 # --- CONFIGURAZIONE ---
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 FLAG_FILE = "scanner_started.txt"
 
-# Tuoi titoli personali (sempre monitorati)
-MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "SOFI", "PLTR", "BABA", "AMD", "NVDA", "TSLA", "MARA"]
+# Tuo Portfolio (Analisi Prioritaria)
+MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "PLTR", "SOUN", "IONQ", "BBAI", "HIMS", "CLSK", "MARA"]
 
 def send_telegram(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    data = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
-    try:
-        requests.post(url, data=data)
-    except Exception as e:
-        print(f"Errore Telegram: {e}")
+    if TOKEN and CHAT_ID:
+        url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+        data = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
+        try:
+            requests.post(url, data=data)
+        except Exception as e:
+            print(f"Errore Telegram: {e}")
 
 def get_market_sentiment():
     try:
         spy = yf.Ticker("SPY").history(period="2d")
+        if len(spy) < 2: return "INDETERMINATO"
         change = ((spy['Close'].iloc[-1] - spy['Close'].iloc[-2]) / spy['Close'].iloc[-2]) * 100
-        if change > 0.5: return "BULLISH 🚀"
-        if change < -0.5: return "BEARISH 📉"
-        return "NEUTRALE ⚖️"
+        if change > 0.5: return "RIALZISTA 🚀"
+        if change < -0.5: return "RIBASSISTA ⚠️"
+        return "LATERALE ⚖️"
     except:
         return "NON DISPONIBILE"
 
 def get_global_tickers():
-    """Scarica i 100 titoli più attivi del giorno"""
     try:
+        url = "https://finance.yahoo.com/markets/stocks/most-active/"
         headers = {'User-Agent': 'Mozilla/5.0'}
-        url = "https://finance.yahoo.com/markets/stocks/most-active/?start=0&count=100"
         response = requests.get(url, headers=headers)
+        # Fix con StringIO per evitare warning di Pandas
         tables = pd.read_html(io.StringIO(response.text))
         df = tables[0]
-        return df['Symbol'].dropna().tolist()
+        return df['Symbol'].head(100).tolist()
     except Exception as e:
-        print(f"Errore download lista globale: {e}")
+        print(f"Errore recupero Top 100: {e}")
         return []
 
 def analyze_stock(ticker, sentiment):
     try:
-        # Usiamo 15 minuti per bilanciare precisione e delay
-        df = yf.download(ticker, period="5d", interval="15m", progress=False)
-        if len(df) < 20: return
-
-        cp = df['Close'].iloc[-1]
-        vol = df['Volume'].iloc[-1]
+        # Scarichiamo i dati (15 minuti di intervallo)
+        df = yf.download(ticker, period="5d", interval="15m", progress=False, threads=False)
         
-        # 1. ANALISI VOLUMI (Z-Score)
-        avg_vol = df['Volume'].rolling(window=20).mean().iloc[-1]
-        std_vol = df['Volume'].rolling(window=20).std().iloc[-1]
-        z_score = (vol - avg_vol) / std_vol if std_vol > 0 else 0
-
-        # 2. RSI (Ipercomprato/Ipervenduto)
+        if df.empty or len(df) < 25: 
+            return
+        
+        # --- FIX AMBIGUITY & MULTIINDEX ---
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        
+        df = df.dropna()
+        
+        # Estrazione valori singoli scalari
+        cp = float(df['Close'].iloc[-1])
+        lp = float(df['Close'].iloc[-2])
+        v_last = float(df['Volume'].iloc[-1])
+        
+        # Volume Z-Score (Anomalia statistica)
+        vol_tail = df['Volume'].tail(20).astype(float)
+        z_score = (v_last - vol_tail.mean()) / vol_tail.std() if vol_tail.std() > 0 else 0
+        
+        # RSI 14 periodi
         delta = df['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs.iloc[-1]))
+        rs = gain / loss.replace(0, 0.001)
+        rsi_val = float(100 - (100 / (1 + rs)).iloc[-1])
 
-        # 3. LOGICA SQUEEZE (Bollinger vs Keltner semplificato)
-        std_dev = df['Close'].rolling(window=20).std().iloc[-1]
-        atr = (df['High'] - df['Low']).rolling(window=20).mean().iloc[-1]
-        is_squeeze = std_dev < (atr * 0.5)
+        # Supporti e Resistenze (ultime 20 candele)
+        res = float(df['High'].iloc[-21:-1].max())
+        sup = float(df['Low'].iloc[-21:-1].min())
+        var_pct_candela = abs((cp - lp) / lp) * 100
         
-        # --- FILTRI ALERT ---
-        msg = ""
-        # Alert Istituzionale (Sweep/Iceberg)
-        if z_score > 3.5:
-            tipo = "🐋 SWEEP" if cp > df['Open'].iloc[-1] else "⚠️ DISTRIBUTION"
-            msg = f"{tipo}: *{ticker}*\n📊 Prezzo: {cp:.2f}\n📈 Vol Z-Score: {z_score:.2f}\n🔥 RSI: {rsi:.1f}"
+        # Logica Squeeze (Bassa volatilità pronta a esplodere)
+        range_prezzi = df['Close'].tail(20).astype(float)
+        volat_pct = (range_prezzi.std() / range_prezzi.mean()) * 100
+        is_squeeze = bool(volat_pct < 0.35)
 
-        # Alert Squeeze (Molla pronta)
-        if is_squeeze:
-            direzione = "RIALZISTA" if cp > df['Close'].rolling(window=20).mean().iloc[-1] else "RIBASSISTA"
-            msg = f"⚡ **SQUEEZE ALERT**: *{ticker}*\n🎯 Direzione probabile: {direzione}\n💎 RSI: {rsi:.1f}\n🚀 Pronta per breakout!"
+        header = f"🌍 **CLIMA:** {sentiment}\n"
+        info = f"\n📊 RSI: {rsi_val:.1f}\n📈 Res: ${res:.2f}\n🛡️ Sup: ${sup:.2f}"
 
-        if msg:
-            # Se è un titolo del tuo portfolio, aggiungi un tag speciale
-            if ticker in MY_PORTFOLIO:
-                msg = "⭐ **PORTFOLIO** ⭐\n" + msg
-            send_telegram(msg)
+        # --- LOGICA ALERT ---
+        soglia_z = 1.3 if ticker in MY_PORTFOLIO else 3.8
+        
+        if z_score > soglia_z:
+            # Caso 1: Grandi volumi, prezzo fermo (Accumulazione Nascosta)
+            if z_score > 5.0 and var_pct_candela <= 0.25:
+                send_telegram(f"{header}🌑 **DARK POOL: {ticker}**\nZ-Vol: {z_score:.1f}" + info)
+            # Caso 2: Iceberg Order
+            elif var_pct_candela <= 0.45:
+                send_telegram(f"{header}🧊 **ICEBERG: {ticker}**\nZ-Vol: {z_score:.1f}" + info)
+            # Caso 3: Sweep aggressivo (Solo per Portfolio)
+            elif cp > lp and ticker in MY_PORTFOLIO:
+                send_telegram(f"{header}🐋 **SWEEP: {ticker}**\nZ-Vol: {z_score:.1f}" + info)
 
+        # Alert specifici per gestione Profitto (Target 50€)
+        if ticker in MY_PORTFOLIO:
+            if rsi_val >= 70.0: 
+                send_telegram(f"🏁 **TARGET {ticker}**: RSI {rsi_val:.1f}\n📢 **AZIONE:** Valuta chiusura per profitto!")
+            
+            if is_squeeze:
+                dist_res = res - cp
+                dist_sup = cp - sup
+                direzione = "📈 Rialzista" if dist_res < dist_sup else "📉 Ribassista"
+                send_telegram(f"⚡ **SQUEEZE {ticker}**\nDirezione: {direzione}\nVolatilità: {volat_pct:.2f}%")
+                
     except Exception as e:
         print(f"Errore analisi {ticker}: {e}")
 
 def main():
-    # Gestione Orario Italia (UTC + 1) - Correzione per server GitHub
-    ora_ita = datetime.datetime.now() + datetime.timedelta(hours=1)
-    today = ora_ita.strftime("%Y-%m-%d")
-    now_time = int(ora_ita.strftime("%H%M"))
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    now_time = int(datetime.datetime.now().strftime("%H%M"))
     
-    print(f"--- LOG OPERATIVO ---")
-    print(f"Orario ITA: {now_time}")
-
-    # Start alle 16:00 per evitare il Far West e gestire il delay di 15m
+    # --- ORARIO OPERATIVO (16:00 - 22:10 ITA) ---
+    # Inizia alle 16:00 per avere dati yfinance (15m delay) puliti post-apertura
     if now_time < 1600 or now_time > 2210:
-        print("Borsa chiusa o fase di apertura (attendo stabilità).")
         if os.path.exists(FLAG_FILE): 
             os.remove(FLAG_FILE)
         return 
@@ -112,19 +132,17 @@ def main():
     sentiment = get_market_sentiment()
     global_list = get_global_tickers()
     
-    # Unione Liste
     portfolio_clean = [str(t) for t in MY_PORTFOLIO]
     all_tickers = sorted(list(set(global_list + portfolio_clean)))
 
-    # Messaggio di benvenuto giornaliero
+    # Notifica Avvio Giornaliero
     if not os.path.exists(FLAG_FILE):
-        send_telegram(f"✅ **SCANNER ATTIVO**\n🌍 Mercato: {sentiment}\n🔍 Monitorando {len(all_tickers)} titoli\n💰 Obiettivo: >50€")
+        send_telegram(f"🚀 **SCANNER OPERATIVO**\n🌍 Mercato: {sentiment}\n🔍 Monitorando {len(all_tickers)} titoli\n⏳ Sincronizzato con delay 15m")
         with open(FLAG_FILE, "w") as f: f.write(today)
 
-    # Scansione ciclica
     for t in all_tickers:
         analyze_stock(t, sentiment)
-        time.sleep(0.6) # Prevenzione ban Yahoo
+        time.sleep(0.6) # Evitiamo rate limit
 
 if __name__ == "__main__":
     main()
