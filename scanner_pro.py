@@ -32,21 +32,18 @@ def get_market_sentiment():
 
 def get_global_tickers():
     try:
-        # Puntiamo ai 100 titoli più attivi (count=100)
+        # Peschiamo i 100 titoli più attivi
         url = 'https://finance.yahoo.com/markets/stocks/most-active/?start=0&count=100'
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        
+        headers = {'User-Agent': 'Mozilla/5.0'}
         response = requests.get(url, headers=headers, timeout=10)
-        # Leggiamo la tabella dei simboli
         tables = pd.read_html(response.text)
         if tables:
             df = tables[0]
-            # Yahoo a volte usa 'Symbol' o 'Ticker'
             col_name = 'Symbol' if 'Symbol' in df.columns else df.columns[0]
             return df[col_name].tolist()
         return []
     except Exception as e:
-        print(f"Errore caricamento Global List: {e}")
+        print(f"Errore Global List: {e}")
         return ["PLTR", "NVDA", "AMD", "TSLA"]
 
 def analyze_stock(ticker, sentiment):
@@ -60,7 +57,7 @@ def analyze_stock(ticker, sentiment):
         vol_series = df['Volume'].tail(20)
         z_score = (float(df['Volume'].iloc[-1]) - vol_series.mean()) / vol_series.std() if vol_series.std() > 0 else 0
         
-        # Calcolo RSI manuale rapido
+        # RSI Rapido
         delta = df['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -71,15 +68,16 @@ def analyze_stock(ticker, sentiment):
         res = float(df['High'].iloc[-21:-1].max())
         sup = float(df['Low'].iloc[-21:-1].min())
         
-        # Filtro Squeeze
-        is_squeeze = (df['Close'].tail(20).std() / df['Close'].tail(20).mean()) * 100 < 0.4 
+        # --- LOGICA SQUEEZE DIREZIONALE ---
+        range_prezzi = df['Close'].tail(20)
+        volat_pct = (range_prezzi.std() / range_prezzi.mean()) * 100
+        is_squeeze = volatil_pct < 0.4 
 
-        # Soglia Z differenziata
-        soglia_z = 1.3 if ticker in MY_PORTFOLIO else 3.5
-        
         header = f"🌍 **CLIMA:** {sentiment}\n"
         info = f"\n📊 RSI: {rsi_val:.1f}\n📈 Res: ${res:.2f}\n🛡️ Sup: ${sup:.2f}"
 
+        # 1. ALERT VOLUMI (Per tutti i 110 titoli)
+        soglia_z = 1.3 if ticker in MY_PORTFOLIO else 3.5
         if z_score > soglia_z:
             if z_score > 5.0 and var_pct_candela <= 0.30:
                 send_telegram(f"{header}🌑 **DARK POOL: {ticker}**\nZ-Vol: {z_score:.1f}" + info)
@@ -88,36 +86,40 @@ def analyze_stock(ticker, sentiment):
             elif cp > lp and ticker in MY_PORTFOLIO:
                 send_telegram(f"{header}🐋 **SWEEP: {ticker}**" + info)
 
+        # 2. ALERT PORTFOLIO (Squeeze e Target Gain)
         if ticker in MY_PORTFOLIO:
-            if rsi_val >= 70.0: send_telegram(f"🏁 **TARGET {ticker}**: RSI {rsi_val:.1f}. Gain > 50€?")
-            if is_squeeze: send_telegram(f"⚡ **SQUEEZE {ticker}**: Esplosione imminente!")
+            if rsi_val >= 70.0: 
+                send_telegram(f"🏁 **TARGET {ticker}**: RSI {rsi_val:.1f}\n📢 **AZIONE:** Valuta profitto > 50€!")
             
+            if is_squeeze:
+                dist_res = res - cp
+                dist_sup = cp - sup
+                direzione = "📈 **Pressione RIALZISTA**" if dist_res < dist_sup else "📉 **Rischio RIBASSO**"
+                consiglio = "Pronto al breakout?" if dist_res < dist_sup else "Attenzione al supporto!"
+                send_telegram(f"⚡ **SQUEEZE {ticker}**\n📢 DIREZIONE: {direzione}\n💡 {consiglio}\n📊 Volatilità: {volat_pct:.2f}%")
+                
     except: pass
 
 def main():
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     now_time = int(datetime.datetime.now().strftime("%H%M"))
     
-    # Range Orario Borsa US (15:30 - 22:10)
+    # Orario Borsa US (15:30 - 22:10)
     if now_time < 1530 or now_time > 2210:
         if os.path.exists(FLAG_FILE): os.remove(FLAG_FILE)
-        print("Fuori orario borsa.")
         return
 
     sentiment = get_market_sentiment()
     global_list = get_global_tickers()
     all_tickers = sorted(list(set(global_list + MY_PORTFOLIO)))
 
-    # Messaggio di avvio (una sola volta al giorno grazie al file FLAG)
     if not os.path.exists(FLAG_FILE):
         send_telegram(f"✅ **SCANNER ATTIVO**\n🌍 Mercato: {sentiment}\n🔍 Analisi su {len(all_tickers)} titoli\n🚀 Caccia aperta!")
         with open(FLAG_FILE, "w") as f: f.write(today)
 
-    # Scansione singola (per Cron Job)
-    print(f"Eseguo scansione su {len(all_tickers)} titoli...")
     for t in all_tickers:
         analyze_stock(t, sentiment)
-        time.sleep(0.4) # Protezione anti-ban
+        time.sleep(0.4)
 
 if __name__ == "__main__":
     main()
