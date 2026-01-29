@@ -12,7 +12,6 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 FLAG_FILE = "scanner_started.txt"
 
-# Tuo Portfolio (Monitoraggio prioritario per Target 50€)
 MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "PLTR", "SOUN", "IONQ", "BBAI", "HIMS", "CLSK", "MARA"]
 
 def send_telegram(message):
@@ -28,7 +27,6 @@ def get_market_sentiment():
     try:
         spy = yf.Ticker("SPY").history(period="2d")
         if len(spy) < 2: return "INDETERMINATO"
-        # Estrazione sicura scalare
         c1 = float(spy['Close'].iloc[-1].item())
         c2 = float(spy['Close'].iloc[-2].item())
         change = ((c1 - c2) / c2) * 100
@@ -50,86 +48,71 @@ def get_global_tickers():
         print(f"Errore recupero Top 100: {e}")
         return []
 
-def analyze_stock(ticker, sentiment):
+def analyze_stock(ticker):
     try:
         df = yf.download(ticker, period="5d", interval="15m", progress=False)
-        if df.empty or len(df) < 20: return
+        if df.empty or len(df) < 20: return None
 
-        # FIX: Estrazione valori come float singoli (.item())
         cp = float(df['Close'].iloc[-1].item())
-        lp = float(df['Close'].iloc[-2].item())
         open_p = float(df['Open'].iloc[-1].item())
         vol = float(df['Volume'].iloc[-1].item())
         
-        # --- ANALISI VOLUMI ---
-        avg_vol_series = df['Volume'].rolling(window=10).mean()
-        std_vol_series = df['Volume'].rolling(window=10).std()
-        
-        avg_vol = float(avg_vol_series.iloc[-1].item())
-        std_vol = float(std_vol_series.iloc[-1].item())
+        avg_vol = float(df['Volume'].rolling(window=10).mean().iloc[-1].item())
+        std_vol = float(df['Volume'].rolling(window=10).std().iloc[-1].item())
         z_score = (vol - avg_vol) / std_vol if std_vol > 0 else 0
 
-        # --- ANALISI RSI ---
+        # Calcolo RSI
         delta = df['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gain / loss.replace(0, 0.001)
-        # Fix RSI ambiguità
         rsi_val = float(100 - (100 / (1 + float(rs.iloc[-1].item()))))
 
-        # --- ANALISI SQUEEZE ---
-        std_dev = float(df['Close'].rolling(window=20).std().iloc[-1].item())
-        atr = float((df['High'] - df['Low']).rolling(window=20).mean().iloc[-1].item())
-        is_squeeze = std_dev < (atr * 0.5)
-
-        header = "⭐ **PORTFOLIO** ⭐\n" if ticker in MY_PORTFOLIO else "✅ **ATTIVO**\n"
-        var_pct_candela = ((cp - open_p) / open_p) * 100
-        info = f"\n💰 Prezzo: ${cp:.2f} ({var_pct_candela:+.2f}%)\n🔥 RSI: {rsi_val:.1f}"
-
-        # 1. LOGICA ALERT VOLUMI (Aggressiva Z-Score > 0.5)
-        if z_score > 0.5 and cp > open_p:
-            if z_score > 5.0 and abs(var_pct_candela) <= 0.25:
-                send_telegram(f"{header}🌑 **DARK POOL: {ticker}**\nZ-Vol: {z_score:.1f}" + info)
-            elif abs(var_pct_candela) <= 0.45:
-                send_telegram(f"{header}🧊 **ICEBERG: {ticker}**\nZ-Vol: {z_score:.1f}" + info)
-            else:
-                send_telegram(f"{header}🐋 **SWEEP: {ticker}**\nZ-Vol: {z_score:.1f}" + info)
-
-        # 2. LOGICA PROFITTO (Solo Portfolio)
-        if ticker in MY_PORTFOLIO:
-            if rsi_val >= 70.0: 
-                send_telegram(f"🏁 **TARGET {ticker}**\nRSI: {rsi_val:.1f}\n📢 **AZIONE:** Valuta chiusura per profitto (>50€)!")
-            
-            if is_squeeze:
-                ma20 = float(df['Close'].rolling(window=20).mean().iloc[-1].item())
-                direzione = "📈 Rialzista" if cp > ma20 else "📉 Ribassista"
-                send_telegram(f"⚡ **SQUEEZE {ticker}**\nDirezione: {direzione}\nPronto al Breakout!")
-
-    except Exception as e:
-        print(f"Errore analisi {ticker}: {e}")
+        if cp > open_p and z_score > 0.5:
+            var_pct = ((cp - open_p) / open_p) * 100
+            header = "⭐ **PORTFOLIO** ⭐\n" if ticker in MY_PORTFOLIO else "✅ **ATTIVO**\n"
+            msg = f"{header}Ticker: *{ticker}*\n💰 Prezzo: ${cp:.2f} ({var_pct:+.2f}%)\n📊 Z-Score Vol: {z_score:.2f}\n🔥 RSI: {rsi_val:.1f}"
+            send_telegram(msg)
+            return True # Segnale trovato
+        return False # Nessun segnale
+    except:
+        return None
 
 def main():
-    # Orario Italia (UTC+1)
     ora_ita = datetime.datetime.now() + datetime.timedelta(hours=1)
-    today = ora_ita.strftime("%Y-%m-%d")
     now_time = int(ora_ita.strftime("%H%M"))
     
-    print(f"--- LOG OPERATIVO ---")
-    print(f"Orario ITA: {now_time}")
-
     sentiment = get_market_sentiment()
     global_list = get_global_tickers()
     
-    # Pulizia liste
     portfolio_clean = [str(t) for t in MY_PORTFOLIO if pd.notna(t)]
     global_clean = [str(t) for t in global_list if pd.notna(t)]
     all_tickers = sorted(list(set(portfolio_clean + global_clean)))
 
-    if not os.path.exists(FLAG_FILE):
-        send_telegram(f"🚀 **SCANNER TEST AVVIATO**\n🌍 Mercato: {sentiment}\n🔍 Analizzo {len(all_tickers)} titoli...")
-        with open(FLAG_FILE, "w") as f: f.write(today)
+    send_telegram(f"🚀 **AVVIO SCANSIONE**\n🌍 Mercato: {sentiment}\n🔍 Analizzo {len(all_tickers)} titoli...")
+
+    analizzati = []
+    segnali_count = 0
 
     for t in all_tickers:
+        risultato = analyze_stock(t)
+        if risultato is not None:
+            analizzati.append(t)
+            if risultato is True:
+                segnali_count += 1
+        time.sleep(0.5)
+
+    # REPORT FINALE SU TELEGRAM
+    lista_txt = ", ".join(analizzati)
+    report = (f"🏁 **FINE SCANSIONE**\n"
+              f"📊 Titoli elaborati: {len(analizzati)}\n"
+              f"📈 Segnali inviati: {segnali_count}\n"
+              f"📋 Lista completa:\n`{lista_txt}`")
+    
+    send_telegram(report)
+
+if __name__ == "__main__":
+    main()
         analyze_stock(t, sentiment)
         time.sleep(0.5)
 
