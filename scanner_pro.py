@@ -61,7 +61,6 @@ def analyze_stock(ticker):
         std_vol = float(df['Volume'].rolling(window=10).std().iloc[-1].item())
         z_score = (vol - avg_vol) / std_vol if std_vol > 0 else 0
 
-        # Calcolo RSI
         delta = df['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -71,16 +70,15 @@ def analyze_stock(ticker):
         if cp > open_p and z_score > 0.5:
             var_pct = ((cp - open_p) / open_p) * 100
             header = "⭐ **PORTFOLIO** ⭐\n" if ticker in MY_PORTFOLIO else "✅ **ATTIVO**\n"
-            msg = f"{header}Ticker: *{ticker}*\n💰 Prezzo: ${cp:.2f} ({var_pct:+.2f}%)\n📊 Z-Score Vol: {z_score:.2f}\n🔥 RSI: {rsi_val:.1f}"
+            msg = f"{header}Ticker: *{ticker}*\n💰 Prezzo: ${cp:.2f} ({var_pct:+.2f}%)\n📊 Z-Vol: {z_score:.2f}\n🔥 RSI: {rsi_val:.1f}"
             send_telegram(msg)
-            return True # Segnale trovato
-        return False # Nessun segnale
+            return True
+        return False
     except:
         return None
 
 def main():
     ora_ita = datetime.datetime.now() + datetime.timedelta(hours=1)
-    now_time = int(ora_ita.strftime("%H%M"))
     
     sentiment = get_market_sentiment()
     global_list = get_global_tickers()
@@ -95,6 +93,7 @@ def main():
     segnali_count = 0
 
     for t in all_tickers:
+        # Chiamata corretta senza sentiment (allineamento fisso)
         risultato = analyze_stock(t)
         if risultato is not None:
             analizzati.append(t)
@@ -102,7 +101,6 @@ def main():
                 segnali_count += 1
         time.sleep(0.5)
 
-    # REPORT FINALE SU TELEGRAM
     lista_txt = ", ".join(analizzati)
     report = (f"🏁 **FINE SCANSIONE**\n"
               f"📊 Titoli elaborati: {len(analizzati)}\n"
@@ -110,11 +108,6 @@ def main():
               f"📋 Lista completa:\n`{lista_txt}`")
     
     send_telegram(report)
-
-if __name__ == "__main__":
-    main()
-        analyze_stock(t, sentiment)
-        time.sleep(0.5)
 
 if __name__ == "__main__":
     main()
