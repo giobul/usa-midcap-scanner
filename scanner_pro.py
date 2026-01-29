@@ -1,138 +1,157 @@
 import yfinance as yf
 import pandas as pd
-import datetime
-import requests
 import os
 import time
-import io
-import numpy as np
+import requests
+import csv
+from datetime import datetime, timedelta
 
-# --- CONFIGURAZIONE ---
+# --- 1. CONFIGURAZIONE CREDENZIALI ---
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# Portfolio prioritario
-MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "PLTR", "SOUN", "IONQ", "BBAI", "HIMS", "CLSK", "MARA"]
+# --- 2. IL TUO PORTAFOGLIO PRIORITARIO ---
+MY_PORTFOLIO = ["STNE", "RGTI", "BBAI", "PATH", "ADCT", "DKNG"]
 
-# Selezione 200 Titoli Mid-Cap / Growth / AI / Energy
-TICKERS_WATCHLIST = [
-    "RKLB", "ASTS", "OKLO", "SMR", "RIOT", "NU", "MELI", "SE", "SQ", "SHOP",
-    "SNOW", "NET", "DDOG", "CRWD", "ZS", "OKTA", "S", "MSTR", "COIN", "HOOD",
-    "AFRM", "UPST", "OPEN", "SOFI", "LCID", "RIVN", "NIO", "XPEV", "LI", "ENPH",
-    "FSLR", "BE", "RUN", "CHPT", "BLNK", "STEM", "QS", "PLUG", "FCEL", "CRSP",
-    "NTLA", "EDIT", "BEAM", "BNTX", "MRNA", "TDOC", "RXRX", "SDGR", "AMRC", "U",
-    "ROKU", "PINS", "SNAP", "DKNG", "PENN", "BYND", "TSN", "CELH", "SYM", "GTLB",
-    "MNDY", "ASAN", "SMCI", "ARM", "ALTR", "LSCC", "WOLF", "DOCU", "BILL", "CFLT",
-    "DUOL", "APP", "PSTG", "STX", "WDC", "MU", "AVGO", "LRCX", "KLAC", "TER",
-    "TSM", "ASML", "AMAT", "ONT", "AMD", "INTC", "TXN", "ADI", "NXPI", "MCHP",
-    "ON", "MPWR", "SWKS", "QRVO", "CRSR", "LOGI", "RBLX", "MTCH", "BMBL", "IAC",
-    "EXPE", "BKNG", "ABNB", "TRIP", "TROW", "COUP", "WDAY", "ADSK", "PTC", "ANSS",
-    "TEAM", "ADBE", "CRM", "ORCL", "SAP", "NOW", "WORK", "ZS", "PANW", "FTNT",
-    "CBRE", "WY", "AMT", "CCI", "PLD", "EQIX", "DLR", "VTR", "WELL", "SPG",
-    "O", "VICI", "GLPI", "LAMR", "OUT", "LYFT", "UBER", "DASH", "CART", "GRUB",
-    "ZM", "TWLO", "RNG", "VG", "BAND", "FIVN", "EGHT", "AVAYA", "LULU", "NKE",
-    "SBUX", "PFE", "JNJ", "ABBV", "GILD", "AMGN", "REGN", "VRTX", "BIIB", "ILMN",
-    "DNA", "PACB", "NVTA", "GH", "EXAS", "FGEN", "TRUP", "LMND", "ROOT", "MILE",
-    "DKNG", "SKLZ", "BETZ", "PEN", "WYNN", "LVS", "MLCO", "CZR", "MGM", "ERI"
+# --- 3. WATCHLIST 200 MID-CAP (SETTORI CHIAVE 2026) ---
+WATCHLIST_200 = [
+    "VRT","CLS","PSTG","ANET","SMCI","AVGO","MRVL","ALTR","LATT","WOLF","MU","ARM","SOXQ","POWI","DIOD","RMBS","NVDA","TSM","ASML","AMAT",
+    "RKLB","ASTS","RDW","BKSY","SPIR","LMT","NOC","LHX","AVAV","KTOS","BWXT","MDA","BDRY","JOBY","ACHR","EH","UPV","SIDU","LLAP","SPCE",
+    "QUBT","MSFT","GOOGL","IBM","AMZN","META","SNOW","CRWD","NET","ZS","OKTA","PANW","FTNT","DDOG","MDB","TEAM","ASAN","MOND","WDAY","NOW",
+    "NU","MELI","SQ","PYPL","SHOP","PAGS","TOST","AFRM","HOOD","COIN","MARA","CLSK","RIOT","MSTR","V","MA","ADEN","GLBE","DLO","UPST",
+    "OKLO","SMR","NNE","CCJ","UUUU","UEC","LEU","VST","CEG","FLR","GE","NEE","BE","CHPT","TSLA","ENPH","SEDG","FSLR","RUN","SPWR",
+    "DKNG","PENN","RDDT","DUOL","APP","U","GME","AMC","PINS","SNAP","TWLO","ZM","AAL","DAL","UAL","MAR","ABNB","BKNG","RCL","CCL",
+    "RIVN","LCID","NIO","XPEV","LI","BYD","TM","HMC","STLA","F","GM","RACE","QS","LTHM","ALB","LAC","MP","VALE","RIO","FCX",
+    "DOCU","PLOC","GTLB","AI","UPWK","FIVN","PAGER","ESTC","BOX","DBX","EGHT","RNG","ZEN","NEWR","SPLK","SUMO","JFROG","FSLY","AKAM",
+    "OPEN","RDFN","Z","EXPI","COMP","MTCH","BMBL","IAC","LYFT","UBER","DASH","GRUB","WASH","W","ETSY","EBAY","CHWY","RVLV","FIGS","SKLZ",
+    "NKE","LULU","UAA","DECK","CROX","VFC","TPR","CPRI","RL","PVH","KSS","M","JWN","TGT","WMT","COST","BJ","SFM","WBA"
 ]
+
+LOG_FILE = "trading_log.csv"
+alert_history = {} # Memoria per non ripetere lo stesso titolo troppo spesso
+
+def save_to_log(ticker, tipo, prezzo, z_vol, rsi):
+    file_exists = os.path.isfile(LOG_FILE)
+    with open(LOG_FILE, mode='a', newline='') as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow(['Data', 'Ticker', 'Tipo Alert', 'Prezzo', 'Z-Vol', 'RSI'])
+        writer.writerow([datetime.now().strftime("%Y-%m-%d %H:%M"), ticker, tipo, prezzo, z_vol, rsi])
 
 def send_telegram(message):
     if TOKEN and CHAT_ID:
         url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
         data = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
-        try: requests.post(url, data=data)
-        except: pass
+        try:
+            requests.post(url, data=data)
+        except Exception as e:
+            print(f"Errore Telegram: {e}")
 
-def get_market_sentiment():
+def analyze_stock(ticker):
+    global alert_history
     try:
-        spy = yf.Ticker("SPY").history(period="2d")
-        c1 = float(spy['Close'].iloc[-1].item())
-        c2 = float(spy['Close'].iloc[-2].item())
-        change = ((c1 - c2) / c2) * 100
-        if change > 0.3: return "TORO 🐂 (Rialzista)"
-        if change < -0.3: return "ORSO 🐻 (Ribassista)"
-        return "LATERALE ⚖️"
-    except: return "NEUTRALE"
+        now = datetime.now()
+        # Non inviare lo stesso titolo prima di 45 minuti
+        if ticker in alert_history and now < alert_history[ticker] + timedelta(minutes=45):
+            return
 
-def analyze_stock(ticker, sentiment):
-    try:
-        df = yf.download(ticker, period="20d", interval="15m", progress=False)
-        if df.empty or len(df) < 30: return False
-
-        cp = float(df['Close'].iloc[-1].item())
-        op = float(df['Open'].iloc[-1].item())
-        vol = float(df['Volume'].iloc[-1].item())
+        # Download dati (Ticker + Indice SPY per confronto forza)
+        data = yf.download([ticker, "SPY"], period="20d", interval="15m", progress=False)
+        if data.empty: return
         
-        avg_vol = float(df['Volume'].rolling(window=20).mean().iloc[-1].item())
-        z_score = vol / avg_vol if avg_vol > 0 else 0
+        df = data['Close'][ticker].to_frame()
+        df['Volume'] = data['Volume'][ticker]
+        df['High'] = data['High'][ticker]
         
-        res = float(df['High'].rolling(window=20).max().iloc[-1].item())
-        sup = float(df['Low'].rolling(window=20).min().iloc[-1].item())
+        # Calcolo variazione SPY per Forza Relativa
+        spy_change = (data['Close']['SPY'].iloc[-1] - data['Close']['SPY'].iloc[-2]) / data['Close']['SPY'].iloc[-2]
         
-        delta = df['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss.replace(0, 0.001)
-        rsi = float(100 - (100 / (1 + float(rs.iloc[-1].item()))))
+        cp = float(df[ticker].iloc[-1])
+        hi = float(df['High'].iloc[-1])
+        prev_cp = float(df[ticker].iloc[-2])
+        vol = float(df['Volume'].iloc[-1])
+        
+        # FILTRO QUALITÀ: Prezzo deve chiudere nella parte alta della candela
+        if (hi - cp) > (hi - prev_cp) * 0.4:
+            return
 
-        var_pct = ((cp - op) / op) * 100
-        tipo_alert = ""
-        commento_ia = "Prezzo in tenuta, monitorare volumi."
+        # CALCOLO Z-SCORE VOLUME
+        avg_vol = df['Volume'].tail(20).mean()
+        std_vol = df['Volume'].tail(20).std()
+        z_score = (vol - avg_vol) / std_vol if std_vol > 0 else 0
+        
+        # LIVELLI TECNICI
+        res_20d = float(df[ticker].max())
+        sup = float(df[ticker].tail(20).min())
+        dist_sup = ((cp - sup) / sup) * 100
+        
+        # CALCOLO RSI
+        delta = df[ticker].diff()
+        gain = (delta.where(delta > 0, 0)).tail(14).mean()
+        loss = (-delta.where(delta < 0, 0)).tail(14).mean()
+        rsi = float(100 - (100 / (1 + (gain / loss.replace(0, 0.001)))))
 
-        # LOGICA ALERT ISTITUZIONALI
-        if z_score > 2.5:
-            if abs(var_pct) < 0.25:
-                tipo_alert = "🧊 ICEBERG (Accumulo Istituzionale)"
-                commento_ia = "Un grosso player sta comprando senza muovere il prezzo. Ottima base."
-            elif var_pct > 0.70:
+        var_pct = ((cp - prev_cp) / prev_cp) * 100
+        is_stronger_than_market = var_pct > (spy_change * 100)
+        
+        tipo_alert, commento_ia = "", ""
+
+        # LOGICA SWEEP / BREAKOUT
+        if z_score > 3.0 and var_pct > 0.70 and is_stronger_than_market:
+            if cp >= res_20d:
+                tipo_alert = "🚀 BREAKOUT STORICO + SWEEP 🚀"
+                commento_ia = f"Rottura massimi con volumi estremi (Z-VOL {z_score:.1f})."
+            else:
                 tipo_alert = "🐋 SWEEP CALL (Aggressione)"
-                commento_ia = "Forte pressione in acquisto. Monitora il breakout."
+                commento_ia = f"Forte aggressione istituzionale (Z-VOL: {z_score:.1f})."
+        
+        # LOGICA ICEBERG
+        elif 2.0 < z_score < 3.0 and abs(var_pct) < 0.30:
+            tipo_alert = "🧊 ICEBERG (Accumulo)"
+            commento_ia = "Accumulo silenzioso rilevato (Mani forti)."
 
-        # LOGICA COMMENTO VENDITA
-        if rsi >= 75:
-            commento_ia = "Indicatori in forte eccesso tecnico. CONSIDERA VENDITA!"
-        elif cp >= res:
-            commento_ia = "Prezzo a contatto con la resistenza. CONSIDERA VENDITA!"
+        # LOGICA MONITORAGGIO PORTFOLIO
+        if ticker in MY_PORTFOLIO and (rsi >= 75 or cp >= res_20d):
+            tipo_alert = "⚠️ MONITORAGGIO VENDITA ⚠️"
+            commento_ia = "Ipercomprato o Resistenza raggiunta. Valuta profit-taking."
 
-        # INVIO ALERT (Se anomalia o se Portfolio in verde)
-        if tipo_alert or (ticker in MY_PORTFOLIO and cp > op) or rsi >= 75:
-            tag = "⭐ PORTFOLIO ⭐" if ticker in MY_PORTFOLIO else "🔍 SCANNER"
-            if rsi >= 75: tag = "⚠️ MONITORAGGIO VENDITA ⚠️"
-            
-            msg = f"{tag}\n"
-            msg += f"📊 **TITOLO: {ticker}**\n"
-            msg += f"🌡 Clima Mercato: {sentiment}\n"
-            msg += f"----------------------------\n"
-            msg += f"💰 VALORE ATTUALE: ${cp:.2f} ({var_pct:+.2f}%)\n"
-            msg += f"🧱 Supporto: ${sup:.2f} | Resistenza: ${res:.2f}\n"
-            msg += f"🔥 RSI: {rsi:.1f}\n"
-            msg += f"⚠️ TIPO: {tipo_alert if tipo_alert else 'Movimento Regolare'}\n"
-            msg += f"----------------------------\n"
-            msg += f"🤖 COMMENTO IA: {commento_ia}"
+        if tipo_alert:
+            msg = f"{tipo_alert}\n📊 **TITOLO: {ticker}**\n----------------------------\n"
+            msg += f"💰 PREZZO: ${cp:.2f} ({var_pct:+.2f}%)\n⚡ **Z-VOL: {z_score:.1f}**\n"
+            msg += f"🧱 Sup: ${sup:.2f} (**-{dist_sup:.2f}%**) | Res: ${res_20d:.2f}\n"
+            msg += f"🔥 RSI: {rsi:.1f}\n----------------------------\n🤖 IA: {commento_ia}"
             
             send_telegram(msg)
-            return True
-        return False
-    except: return False
+            save_to_log(ticker, tipo_alert, cp, round(z_score, 2), round(rsi, 2))
+            alert_history[ticker] = now
+
+    except Exception as e:
+        print(f"Errore su {ticker}: {e}")
 
 def main():
-    sentiment = get_market_sentiment()
-    all_tickers = sorted(list(set(MY_PORTFOLIO + TICKERS_WATCHLIST)))
+    # Carichiamo e puliamo la lista
+    all_tickers = sorted(list(set(MY_PORTFOLIO + WATCHLIST_200)))
+    count = len(all_tickers)
     
-    send_telegram(f"🚀 **INIZIO SCANSIONE AGGRESSIVA**\n🌍 Mercato: {sentiment}\n🔍 Analizzo {len(all_tickers)} titoli (Portfolio + Watchlist)...")
-
-    trovati = []
+    # LOGICA STARTUP INTELLIGENTE
+    current_hour = datetime.now().hour
+    is_manual = os.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch"
+    
+    # Invia il messaggio solo se è manuale o se è la scansione delle 16:00 italiane (15:00 UTC)
+    if is_manual or current_hour == 15:
+        start_msg = (
+            f"🚀 **Scanner Pro 2026: Sessione Avviata**\n"
+            f"----------------------------\n"
+            f"📈 Monitoraggio su **{count}** Mid-Cap.\n"
+            f"🎯 Focus: Sweep & Iceberg (Z-Score > 2.0)\n"
+            f"✅ Prima scansione in corso..."
+        )
+        send_telegram(start_msg)
+    
+    # Ciclo di scansione
     for t in all_tickers:
-        if analyze_stock(t, sentiment):
-            trovati.append(t)
-        time.sleep(0.4)
-
-    lista_txt = ", ".join(trovati) if trovati else "Nessun segnale rilevante."
-    report = (f"🏁 **FINE SCANSIONE**\n"
-              f"📊 Titoli elaborati: {len(all_tickers)}\n"
-              f"📈 Segnali inviati: {len(trovati)}\n"
-              f"📋 Lista in positivo:\n`{lista_txt}`")
-    send_telegram(report)
+        analyze_stock(t)
+        time.sleep(1) # Rispetto dei limiti API Yahoo Finance
 
 if __name__ == "__main__":
     main()
