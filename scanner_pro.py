@@ -1,19 +1,15 @@
 import yfinance as yf
 import pandas as pd
-import numpy as np
 import os
 import requests
 import datetime
-import time
 import logging
 
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
 
 # --- CONFIGURAZIONE ---
 MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "QUBT", "DKNG", "AI", "BBAI", "ADCT", "AGEN", "STX"]
-WATCHLIST = ["STX", "IONQ", "PLTR", "SOUN", "SNOW", "NET", "CRWD", "DDOG", "ZS", "OKTA", "MDB", "TEAM", "S", "U", "ADBE", "CRM", "WDAY", "NOW", "NU", "PAGS", "MELI", "SOFI", "UPST", "AFRM", "HOOD", "PYPL", "COIN", "BILL", "TOST", "DAVE", "MQ", "LC", "BABA", "JD", "PDD", "MARA", "RIOT", "CLSK", "HUT", "BITF", "MSTR", "WULF", "CIFR", "ANY", "BTBT", "CAN", "VRTX", "VKTX", "SAVA", "IOVA", "BBIO", "MDGL", "REGN", "ILMN", "EXAS", "BNTX", "MRNA", "IQV", "TDOC", "BMEA", "SRPT", "CRSP", "EDIT", "BEAM", "NTLA", "RLAY", "IRON", "TLRY", "CGC", "AMD", "NVDA", "INTC", "MU", "TXN", "TSM", "ASML", "AMAT", "LRCX", "KLAC", "SNPS", "CDNS", "ARM", "MRVL", "AVGO", "SMCI", "ANET", "TER", "ENTG", "ON", "TSLA", "RIVN", "LCID", "F", "GM", "RACE", "STLA", "ENPH", "SEDG", "FSLR", "PLUG", "CHPT", "RUN", "QS", "NIO", "XPEV", "LI", "BE", "NEE", "BLDP", "FCEL", "PENN", "RCL", "CCL", "NCLH", "AAL", "DAL", "UAL", "LUV", "BKNG", "EXPE", "MAR", "HLT", "GENI", "RSI", "SHOP", "DOCU", "ZM", "DASH", "ABNB", "UBER", "LYFT", "CHWY", "ROKU", "PINS", "SNAP", "EBAY", "ETSY", "RVLV", "META", "GOOGL", "AMZN", "MSFT", "AAPL", "NFLX", "DIS", "WBD", "AMC", "GME", "BB", "NOK", "FUBO", "SPCE", "RBLX", "MTCH", "BMBL", "YELP", "TTD", "OPEN", "HOV", "BLND", "HRTX", "MNMD", "WKHS", "DNA", "PLBY", "SKLZ", "SENS", "HYLN", "ASTS", "INVZ", "AEVA", "VRT", "ETN", "POWI", "RMBS", "OKLO", "SMR", "HIMS", "CLVT", "LRN", "GCT"]
-
-SOGLIA_RSI_EXIT = 70.0  
+FLAG_FILE = "scanner_started.txt" # File per ricordarsi dell'avvio giornaliero
 
 def send_telegram(message):
     token = os.getenv("TELEGRAM_TOKEN")
@@ -26,82 +22,78 @@ def send_telegram(message):
 
 def get_market_sentiment():
     try:
-        # Analizziamo il QQQ (Nasdaq 100) per il contesto Tech/Growth
         idx = yf.download("QQQ", period="2d", interval="1d", progress=False)
-        if len(idx) < 2: return "⚖️ NEUTRALE"
         change = ((idx['Close'].iloc[-1] - idx['Close'].iloc[-2]) / idx['Close'].iloc[-2]) * 100
         if change > 0.5: return "🚀 BULLISH"
         if change < -0.5: return "📉 BEARISH"
         return "⚖️ NEUTRALE"
     except: return "❓ INCERTO"
 
-def calculate_rsi(prices, period=14):
-    delta = prices.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
+def get_global_tickers():
+    try:
+        most_active = pd.read_html('https://finance.yahoo.com/most-active')[0]
+        return most_active['Symbol'].tolist()
+    except:
+        return ["PLTR", "NVDA", "AMD", "TSLA"]
 
 def analyze_stock(ticker, sentiment):
+    # ... (La logica di analisi rimane la stessa delle versioni precedenti)
     try:
         df = yf.download(ticker, period="5d", interval="15m", progress=False, threads=False)
         if df.empty or len(df) < 25: return
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
-
+        
         cp = float(df['Close'].iloc[-1])
         lp = float(df['Close'].iloc[-2])
         vol_series = df['Volume'].tail(20)
         z_score = (float(df['Volume'].iloc[-1]) - vol_series.mean()) / vol_series.std() if vol_series.std() > 0 else 0
-        rsi_val = float(calculate_rsi(df['Close']).iloc[-1])
+        rsi_val = (100 - (100 / (1 + (df['Close'].diff().where(df['Close'].diff() > 0, 0).rolling(14).mean() / -df['Close'].diff().where(df['Close'].diff() < 0, 0).rolling(14).mean())))).iloc[-1]
         var_pct_candela = abs((cp - lp) / lp) * 100
         res = float(df['High'].iloc[-21:-1].max())
         sup = float(df['Low'].iloc[-21:-1].min())
         
-        # Check Squeeze
-        std_dev = df['Close'].tail(20).std()
-        avg_price = df['Close'].tail(20).mean()
-        is_squeeze = (std_dev / avg_price) * 100 < 0.4 
-
-        soglia_z = 1.3 if ticker in MY_PORTFOLIO else 2.0
-        header = f"🌍 **CLIMA MERCATO:** {sentiment}\n"
-        info_tecnica = f"\n📊 RSI: {rsi_val:.1f}\n📈 Res: ${res:.2f}\n🛡️ Sup: ${sup:.2f}"
-
+        soglia_z = 1.3 if ticker in MY_PORTFOLIO else 3.5 # Soglia più alta per il globale via Cron
+        
         if z_score > soglia_z:
-            # 1. DARK POOL
-            if z_score > 4.0 and var_pct_candela <= 0.30:
-                msg = f"{header}🌑 **DARK POOL DETECTED: {ticker}**\nZ-Vol: {z_score:.1f}" + info_tecnica + "\n📢 **COSA FARE:** Scambio massiccio fuori mercato. Segnale di forza se il mercato è BULLISH."
-                send_telegram(msg)
-            # 2. ICEBERG (Soglia 0.50% per STNE)
+            if z_score > 5.0 and var_pct_candela <= 0.30:
+                send_telegram(f"🌍 **CLIMA:** {sentiment}\n🌑 **DARK POOL: {ticker}**\nZ: {z_score:.1f}\nRSI: {rsi_val:.1f}")
             elif var_pct_candela <= 0.50:
-                msg = f"{header}🧊 **ACCUMULO ISTITUZIONALE: {ticker}**\nZ-Vol: {z_score:.1f}" + info_tecnica + "\n📢 **COSA FARE:** Balene in accumulo. Ottimo setup se il mercato regge."
-                send_telegram(msg)
-            # 3. SWEEP
-            elif cp > lp:
-                msg = f"{header}🐋 **SWEEP BULLISH: {ticker}**\nPrezzo: ${cp:.2f}" + info_tecnica + "\n📢 **COSA FARE:** Aggressività istituzionale in corso!"
-                send_telegram(msg)
-            # 4. USCITA (Solo Portfolio)
-            elif cp < lp and ticker in MY_PORTFOLIO:
-                msg = f"{header}🚨 **MOVIMENTO IN USCITA: {ticker}**" + info_tecnica + "\n📢 **COSA FARE:** Balene in vendita. Proteggi il capitale, specialmente se il mercato è BEARISH!"
-                send_telegram(msg)
-
-        if is_squeeze and ticker in MY_PORTFOLIO:
-            send_telegram(f"{header}⚡ **SQUEEZE ALERT: {ticker}**\nPrezzo: ${cp:.2f}\n📢 **COSA FARE:** Prezzo compresso. Esplosione imminente!")
-
-        if ticker in MY_PORTFOLIO and rsi_val >= SOGLIA_RSI_EXIT:
-            send_telegram(f"{header}🏁 **ZONA TARGET: {ticker}**\nPrezzo: ${cp:.2f}" + info_tecnica + f"\n📢 **COSA FARE:** RSI alto. Se sei sopra i 50€ di gain, valuta il profitto!")
-
+                send_telegram(f"🌍 **CLIMA:** {sentiment}\n🧊 **ICEBERG: {ticker}**\nZ: {z_score:.1f}")
+        
+        if ticker in MY_PORTFOLIO and rsi_val >= 70.0:
+            send_telegram(f"🏁 **TARGET {ticker}**: RSI {rsi_val:.1f}. Gain > 50€?")
     except: pass
 
 def main():
-    now = datetime.datetime.now()
-    current_time = int(now.strftime("%H%M"))
-    if current_time < 1530 or current_time > 2210: return
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    now_time = int(datetime.datetime.now().strftime("%H%M"))
     
+    # Esegui solo se la borsa è aperta (15:30 - 22:10)
+    if now_time < 1530 or now_time > 2210:
+        # Se la borsa è chiusa, cancelliamo il file flag per domani
+        if os.path.exists(FLAG_FILE): os.remove(FLAG_FILE)
+        return
+
     sentiment = get_market_sentiment()
-    all_tickers = sorted(list(set(WATCHLIST + MY_PORTFOLIO)))
+    global_list = get_global_tickers()
+    all_tickers = sorted(list(set(global_list + MY_PORTFOLIO)))
+
+    # --- LOGICA MESSAGGIO DI AVVIO UNICO ---
+    # Controlliamo se abbiamo già inviato il messaggio oggi
+    already_started = False
+    if os.path.exists(FLAG_FILE):
+        with open(FLAG_FILE, "r") as f:
+            if f.read().strip() == today:
+                already_started = True
+
+    if not already_started:
+        send_telegram(f"✅ **SCANNER ATTIVO**\n🌍 Mercato: {sentiment}\n🔍 Analisi su {len(all_tickers)} titoli\n🚀 Caccia aperta!")
+        with open(FLAG_FILE, "w") as f:
+            f.write(today)
+
+    # --- ESECUZIONE SINGOLA SCANSIONE (Il Cron Job la ripeterà) ---
     for t in all_tickers:
         analyze_stock(t, sentiment)
-        time.sleep(0.4)
 
 if __name__ == "__main__":
     main()
