@@ -3,9 +3,10 @@ name: AI Stock Scanner
 on:
   workflow_dispatch:
   schedule:
-    # Gira ogni 5 minuti dalle 14:30 alle 21:00 UTC (15:30-22:00 ITA)
-    - cron: '*/5 14-20 * * 1-5'
-    - cron: '0-5 21 * * 1-5'
+    # '45/5' parte al minuto 45 e ripete ogni 5 (45, 50, 55)
+    # '14' è l'ora UTC delle 15:00 ITA. '15-20' copre fino alle 21:00 UTC (22:00 ITA)
+    - cron: '45/5 14 * * 1-5'
+    - cron: '*/5 15-20 * * 1-5'
 
 jobs:
   build:
