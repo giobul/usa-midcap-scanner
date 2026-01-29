@@ -49,49 +49,48 @@ def get_global_tickers():
 
 def analyze_stock(ticker, sentiment):
     try:
-        # Scarichiamo i dati (15 minuti di intervallo)
+        # Scarichiamo i dati
         df = yf.download(ticker, period="5d", interval="15m", progress=False, threads=False)
         
         if df.empty or len(df) < 25: 
             return
         
-        # --- FIX AMBIGUITY & MULTIINDEX ---
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
         
         df = df.dropna()
         
-        # Estrazione valori singoli scalari
         cp = float(df['Close'].iloc[-1])
-        lp = float(df['Close'].iloc[-2])
         v_last = float(df['Volume'].iloc[-1])
         
-        # Volume Z-Score (Anomalia statistica)
+        # Volume Z-Score
         vol_tail = df['Volume'].tail(20).astype(float)
         z_score = (v_last - vol_tail.mean()) / vol_tail.std() if vol_tail.std() > 0 else 0
         
-        # RSI 14 periodi
-        delta = df['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss.replace(0, 0.001)
-        rsi_val = float(100 - (100 / (1 + rs)).iloc[-1])
+        # --- TEST DI FUNZIONAMENTO (Soglia molto bassa) ---
+        # Usiamo 1.0 invece di 3.8 per "forzare" qualche segnale
+        soglia_test = 1.0 
 
-        # Supporti e Resistenze (ultime 20 candele)
-        res = float(df['High'].iloc[-21:-1].max())
-        sup = float(df['Low'].iloc[-21:-1].min())
-        var_pct_candela = abs((cp - lp) / lp) * 100
-        
-        # Logica Squeeze (Bassa volatilità pronta a esplodere)
-        range_prezzi = df['Close'].tail(20).astype(float)
-        volat_pct = (range_prezzi.std() / range_prezzi.mean()) * 100
-        is_squeeze = bool(volat_pct < 0.35)
+        if z_score > soglia_test:
+            tipo = "🐋 SWEEP (TEST)" if cp > df['Open'].iloc[-1] else "⚠️ DISTRIB (TEST)"
+            
+            # Calcolo RSI veloce per il messaggio
+            delta = df['Close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rs = gain / loss.replace(0, 0.001)
+            rsi_val = float(100 - (100 / (1 + rs.iloc[-1])))
 
-        header = f"🌍 **CLIMA:** {sentiment}\n"
-        info = f"\n📊 RSI: {rsi_val:.1f}\n📈 Res: ${res:.2f}\n🛡️ Sup: ${sup:.2f}"
+            msg = f"{tipo}: *{ticker}*\n💰 Prezzo: ${cp:.2f}\n📊 Z-Score Vol: {z_score:.2f}\n🔥 RSI: {rsi_val:.1f}\n🌍 Mercato: {sentiment}"
+            
+            if ticker in MY_PORTFOLIO:
+                msg = "⭐ **PORTFOLIO** ⭐\n" + msg
+            
+            print(f"DEBUG: Trovato segnale su {ticker}, invio a Telegram...")
+            send_telegram(msg)
 
-        # --- LOGICA ALERT ---
-        soglia_z = 1.3 if ticker in MY_PORTFOLIO else 3.8
+    except Exception as e:
+        print(f"Errore analisi {ticker}: {e}")
         
         if z_score > soglia_z:
             # Caso 1: Grandi volumi, prezzo fermo (Accumulazione Nascosta)
