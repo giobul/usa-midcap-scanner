@@ -119,12 +119,16 @@ def analyze_stock(ticker, sentiment):
         print(f"Errore analisi {ticker}: {e}")
 
 def main():
-    today = datetime.datetime.now().strftime("%Y-%m-%d")
-    now_time = int(datetime.datetime.now().strftime("%H%M"))
+    # Gestione Orario Italia (UTC + 1)
+    ora_ita = datetime.datetime.now() + datetime.timedelta(hours=1)
+    today = ora_ita.strftime("%Y-%m-%d")
+    now_time = int(ora_ita.strftime("%H%M"))
     
-    # --- ORARIO OPERATIVO (16:00 - 22:10 ITA) ---
-    # Inizia alle 16:00 per avere dati yfinance (15m delay) puliti post-apertura
+    print(f"--- LOG OPERATIVO ---")
+    print(f"Orario ITA: {now_time}")
+
     if now_time < 1600 or now_time > 2210:
+        print("Borsa chiusa o fase di apertura.")
         if os.path.exists(FLAG_FILE): 
             os.remove(FLAG_FILE)
         return 
@@ -132,17 +136,16 @@ def main():
     sentiment = get_market_sentiment()
     global_list = get_global_tickers()
     
-    portfolio_clean = [str(t) for t in MY_PORTFOLIO]
-    all_tickers = sorted(list(set(global_list + portfolio_clean)))
+    # --- FIX ERRORE SORTED ---
+    portfolio_clean = [str(t) for t in MY_PORTFOLIO if pd.notna(t)]
+    global_clean = [str(t) for t in global_list if pd.notna(t)]
+    all_tickers = sorted(list(set(portfolio_clean + global_clean)))
+    # -------------------------
 
-    # Notifica Avvio Giornaliero
     if not os.path.exists(FLAG_FILE):
-        send_telegram(f"🚀 **SCANNER OPERATIVO**\n🌍 Mercato: {sentiment}\n🔍 Monitorando {len(all_tickers)} titoli\n⏳ Sincronizzato con delay 15m")
+        send_telegram(f"✅ **SCANNER ATTIVO**\n🌍 Mercato: {sentiment}\n🔍 Monitorando {len(all_tickers)} titoli\n💰 Obiettivo: >50€")
         with open(FLAG_FILE, "w") as f: f.write(today)
 
     for t in all_tickers:
         analyze_stock(t, sentiment)
-        time.sleep(0.6) # Evitiamo rate limit
-
-if __name__ == "__main__":
-    main()
+        time.sleep(0.6)
