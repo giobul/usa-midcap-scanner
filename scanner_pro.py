@@ -105,9 +105,9 @@ def main():
     now_time = int(datetime.datetime.now().strftime("%H%M"))
     
     # Orario Borsa US (15:30 - 22:10)
-    if now_time < 1530 or now_time > 2210:
-        if os.path.exists(FLAG_FILE): os.remove(FLAG_FILE)
-        return
+    #if now_time < 1530 or now_time > 2210:
+        #if os.path.exists(FLAG_FILE): os.remove(FLAG_FILE)
+        #return
 
     sentiment = get_market_sentiment()
     global_list = get_global_tickers()
