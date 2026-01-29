@@ -133,7 +133,7 @@ def main():
     # Rimuovi il commento a 'return' dopo aver testato che funzioni
     if now_time < 1530 or now_time > 2210:
         if os.path.exists(FLAG_FILE): os.remove(FLAG_FILE)
-        # return 
+        return 
 
     sentiment = get_market_sentiment()
     global_list = get_global_tickers()
