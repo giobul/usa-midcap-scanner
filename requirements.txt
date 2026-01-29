@@ -1,8 +1,7 @@
 pandas
 yfinance
 requests
-google-generativeai
-git+https://github.com/twopirllc/pandas-ta.git@development
 lxml
 html5lib
 beautifulsoup4
+pandas_ta
