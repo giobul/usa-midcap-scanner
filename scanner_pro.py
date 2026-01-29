@@ -49,27 +49,56 @@ def get_global_tickers():
 
 def analyze_stock(ticker, sentiment):
     try:
-        # Scarichiamo i dati
-        df = yf.download(ticker, period="5d", interval="15m", progress=False, threads=False)
+        df = yf.download(ticker, period="2d", interval="15m", progress=False)
+        if df.empty or len(df) < 5: return
+
+        cp = df['Close'].iloc[-1]
+        open_p = df['Open'].iloc[-1]
+        vol = df['Volume'].iloc[-1]
         
-        if df.empty or len(df) < 25: 
-            return
-        
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        
-        df = df.dropna()
-        
-        cp = float(df['Close'].iloc[-1])
-        v_last = float(df['Volume'].iloc[-1])
-        
-        # Volume Z-Score
-        vol_tail = df['Volume'].tail(20).astype(float)
-        z_score = (v_last - vol_tail.mean()) / vol_tail.std() if vol_tail.std() > 0 else 0
-        
-        # --- TEST DI FUNZIONAMENTO (Soglia molto bassa) ---
-        # Usiamo 1.0 invece di 3.8 per "forzare" qualche segnale
-        soglia_test = 1.0 
+        # ANALISI VOLUMI MOLTO SENSIBILE (Voto 9.5 per Test)
+        avg_vol = df['Volume'].rolling(window=10).mean().iloc[-1]
+        std_vol = df['Volume'].rolling(window=10).std().iloc[-1]
+        z_score = (vol - avg_vol) / std_vol if std_vol > 0 else 0
+
+        # FILTRO: Solo titoli in attivo (Prezzo > Apertura)
+        if cp > open_p:
+            # Segnaliamo se c'è un minimo di pressione d'acquisto (Z-Score > 0.5)
+            if z_score > 0.5:
+                # Calcoliamo la variazione percentuale semplice della candela
+                var_pct = ((cp - open_p) / open_p) * 100
+                
+                msg = f"✅ **TITOLO ATTIVO**: *{ticker}*\n"
+                msg += f"💰 Prezzo: {cp:.2f} ({var_pct:+.2f}%)\n"
+                msg += f"📊 Volume Z-Score: {z_score:.2f}\n"
+                
+                if ticker in MY_PORTFOLIO:
+                    msg = "⭐ **PORTFOLIO** ⭐\n" + msg
+                
+                send_telegram(msg)
+
+    except Exception as e:
+        print(f"Errore su {ticker}: {e}")
+
+def main():
+    # Forza l'orario per il test attuale (rimuoviamo i blocchi per vedere se va)
+    ora_ita = datetime.datetime.now() + datetime.timedelta(hours=1)
+    now_time = int(ora_ita.strftime("%H%M"))
+    
+    print(f"--- TEST OPERATIVO ---")
+    print(f"Orario ITA: {now_time}")
+
+    # Messaggio di TEST immediato
+    send_telegram(f"🚀 **TEST AGGRESSIVO AVVIATO**\n⏰ Ore: {now_time}\n🔍 Cerco ogni titolo in attivo con volumi...")
+
+    global_list = get_global_tickers()
+    portfolio_clean = [str(t) for t in MY_PORTFOLIO if pd.notna(t)]
+    global_clean = [str(t) for t in global_list if pd.notna(t)]
+    all_tickers = sorted(list(set(portfolio_clean + global_clean)))
+
+    for t in all_tickers:
+        analyze_stock(t, "TEST")
+        time.sleep(0.4) # Più veloce per il test
 
         if z_score > soglia_test:
             tipo = "🐋 SWEEP (TEST)" if cp > df['Open'].iloc[-1] else "⚠️ DISTRIB (TEST)"
