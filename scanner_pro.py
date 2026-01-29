@@ -28,7 +28,10 @@ def get_market_sentiment():
     try:
         spy = yf.Ticker("SPY").history(period="2d")
         if len(spy) < 2: return "INDETERMINATO"
-        change = ((spy['Close'].iloc[-1] - spy['Close'].iloc[-2]) / spy['Close'].iloc[-2]) * 100
+        # Estrazione sicura scalare
+        c1 = float(spy['Close'].iloc[-1].item())
+        c2 = float(spy['Close'].iloc[-2].item())
+        change = ((c1 - c2) / c2) * 100
         if change > 0.5: return "RIALZISTA 🚀"
         if change < -0.5: return "RIBASSISTA ⚠️"
         return "LATERALE ⚖️"
@@ -52,33 +55,38 @@ def analyze_stock(ticker, sentiment):
         df = yf.download(ticker, period="5d", interval="15m", progress=False)
         if df.empty or len(df) < 20: return
 
-        cp = df['Close'].iloc[-1]
-        lp = df['Close'].iloc[-2]
-        open_p = df['Open'].iloc[-1]
-        vol = df['Volume'].iloc[-1]
+        # FIX: Estrazione valori come float singoli (.item())
+        cp = float(df['Close'].iloc[-1].item())
+        lp = float(df['Close'].iloc[-2].item())
+        open_p = float(df['Open'].iloc[-1].item())
+        vol = float(df['Volume'].iloc[-1].item())
         
-        # --- ANALISI VOLUMI (Soglia Test: 0.5) ---
-        avg_vol = df['Volume'].rolling(window=10).mean().iloc[-1]
-        std_vol = df['Volume'].rolling(window=10).std().iloc[-1]
+        # --- ANALISI VOLUMI ---
+        avg_vol_series = df['Volume'].rolling(window=10).mean()
+        std_vol_series = df['Volume'].rolling(window=10).std()
+        
+        avg_vol = float(avg_vol_series.iloc[-1].item())
+        std_vol = float(std_vol_series.iloc[-1].item())
         z_score = (vol - avg_vol) / std_vol if std_vol > 0 else 0
 
-        # --- ANALISI RSI (Per Target 50€) ---
+        # --- ANALISI RSI ---
         delta = df['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gain / loss.replace(0, 0.001)
-        rsi_val = float(100 - (100 / (1 + rs.iloc[-1])))
+        # Fix RSI ambiguità
+        rsi_val = float(100 - (100 / (1 + float(rs.iloc[-1].item()))))
 
         # --- ANALISI SQUEEZE ---
-        std_dev = df['Close'].rolling(window=20).std().iloc[-1]
-        atr = (df['High'] - df['Low']).rolling(window=20).mean().iloc[-1]
+        std_dev = float(df['Close'].rolling(window=20).std().iloc[-1].item())
+        atr = float((df['High'] - df['Low']).rolling(window=20).mean().iloc[-1].item())
         is_squeeze = std_dev < (atr * 0.5)
 
         header = "⭐ **PORTFOLIO** ⭐\n" if ticker in MY_PORTFOLIO else "✅ **ATTIVO**\n"
         var_pct_candela = ((cp - open_p) / open_p) * 100
         info = f"\n💰 Prezzo: ${cp:.2f} ({var_pct_candela:+.2f}%)\n🔥 RSI: {rsi_val:.1f}"
 
-        # 1. LOGICA ALERT VOLUMI (Aggressiva)
+        # 1. LOGICA ALERT VOLUMI (Aggressiva Z-Score > 0.5)
         if z_score > 0.5 and cp > open_p:
             if z_score > 5.0 and abs(var_pct_candela) <= 0.25:
                 send_telegram(f"{header}🌑 **DARK POOL: {ticker}**\nZ-Vol: {z_score:.1f}" + info)
@@ -93,7 +101,7 @@ def analyze_stock(ticker, sentiment):
                 send_telegram(f"🏁 **TARGET {ticker}**\nRSI: {rsi_val:.1f}\n📢 **AZIONE:** Valuta chiusura per profitto (>50€)!")
             
             if is_squeeze:
-                ma20 = df['Close'].rolling(window=20).mean().iloc[-1]
+                ma20 = float(df['Close'].rolling(window=20).mean().iloc[-1].item())
                 direzione = "📈 Rialzista" if cp > ma20 else "📉 Ribassista"
                 send_telegram(f"⚡ **SQUEEZE {ticker}**\nDirezione: {direzione}\nPronto al Breakout!")
 
@@ -109,7 +117,6 @@ def main():
     print(f"--- LOG OPERATIVO ---")
     print(f"Orario ITA: {now_time}")
 
-    # Rimosso blocco orario per permetterti il test immediato
     sentiment = get_market_sentiment()
     global_list = get_global_tickers()
     
