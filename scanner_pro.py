@@ -3,9 +3,9 @@ from datetime import datetime, timedelta
 import time
 import os
 import requests
-import pytz  # Aggiunta per la gestione fusi orari
+import pytz
 
-# 1. Test immediato di output
+# 1. TEST DI AVVIO E CARICAMENTO LIBRERIE
 print("--- TEST DI AVVIO ---")
 print(f"Versione Python: {sys.version}")
 
@@ -52,10 +52,11 @@ def send_telegram(message):
 def analyze_stock(ticker):
     global alert_history
     try:
-        # --- FILTRO ANTI-STREGHE ---
+        # --- FILTRO ANTI-STREGHE (ORARIO NY) ---
         tz_ny = pytz.timezone('US/Eastern')
         now_ny = datetime.now(tz_ny)
         
+        # Blocca dalle 15:45 EST (21:45 ITA) in poi
         if now_ny.hour > 15 or (now_ny.hour == 15 and now_ny.minute >= 45):
             return 
 
@@ -63,14 +64,14 @@ def analyze_stock(ticker):
         if ticker in alert_history and now < alert_history[ticker] + timedelta(minutes=45):
             return
 
-        # Scarichiamo i dati
+        # Scarico dati
         data = yf.download(ticker, period="1mo", interval="15m", progress=False)
         if data.empty: return
 
         df = data.copy()
         df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
 
-        # --- CALCOLO PIVOT POINTS (R1, R2, R3) ---
+        # --- CALCOLO TARGET R1, R2, R3 ---
         high_prev = df['High'].max()
         low_prev = df['Low'].min()
         close_prev = df['Close'].iloc[-2]
@@ -83,7 +84,7 @@ def analyze_stock(ticker):
         res3 = high_prev + 2 * (pivot - low_prev)
         sup1 = (2 * pivot) - high_prev
 
-        # --- INDICATORI PRO ---
+        # --- INDICATORI TECNICI ---
         df['SMA20'] = df['Close'].rolling(window=20).mean()
         current_sma20 = float(df['SMA20'].iloc[-1])
         cp = float(df['Close'].iloc[-1])
@@ -95,19 +96,19 @@ def analyze_stock(ticker):
         std_vol = df['Volume'].tail(20).std()
         z_score = (vol - avg_vol) / std_vol if std_vol > 0 else 0
 
-        # Filtri Qualità
+        # FILTRI QUALITÀ
         prezzo_sale = cp > op
         sopra_trend = cp > current_sma20
         corpo = abs(cp - op)
         ombra_sup = hi - max(cp, op)
         non_respinto = ombra_sup < (corpo * 0.4) if corpo > 0 else False
 
-        # Calcolo Probabilità Dinamiche (Basate su Z-Score)
+        # Calcolo Probabilità Dinamiche
         prob_r1 = min(85, 45 + (z_score * 10)) if z_score > 0 else 30
         prob_r2 = min(65, 20 + (z_score * 12)) if z_score > 0 else 10
         prob_r3 = min(40, 5 + (z_score * 8)) if z_score > 0 else 2
 
-        # Output Log GitHub
+        # Log GitHub
         print(f"📊 {ticker:5} | CP: {cp:7.2f} | Z: {z_score:5.1f}", end=" ")
 
         # --- LOGICA ALERT ---
@@ -122,26 +123,26 @@ def analyze_stock(ticker):
             commento_ia = "Assorbimento ordini in corso."
 
         if tipo_alert:
-            # Segnale visivo su GitHub
+            is_portfolio = ticker in MY_PORTFOLIO
+            header = "💼 [MY PORTFOLIO]" if is_portfolio else "🛰️ [WATCHLIST]"
+            
             print(f"📩 INVIO TELEGRAM PER {ticker}!") 
             
-            # --- COSTRUZIONE MESSAGGIO ---
-            msg = f"*{tipo_alert}*\n📊 **TITOLO: {ticker}**\n"
+            msg = f"{header}\n*{tipo_alert}*\n📊 **TITOLO: {ticker}**\n"
             msg += f"----------------------------\n"
             msg += f"💰 PREZZO: ${cp:.2f} ({var_pct:+.2f}%)\n"
             msg += f"⚡ **Z-VOL: {z_score:.1f}**\n"
             
-            # --- SE IL TITOLO È IN PORTAFOGLIO: TARGET AGGRESSIVI ---
-            if ticker in MY_PORTFOLIO:
+            if is_portfolio:
+                whale_bonus = "💰💰💰" if prob_r2 > 60 else ""
                 msg += f"\n🎯 **TARGET E PROBABILITÀ PRO:**\n"
                 msg += f"🟢 R1: ${res1:.2f} | Prob: {prob_r1:.0f}%\n"
-                msg += f"🟠 R2: ${res2:.2f} | Prob: {prob_r2:.0f}% (BIG WHALE)\n"
+                msg += f"🟠 R2: ${res2:.2f} | Prob: {prob_r2:.0f}% (BIG WHALE) {whale_bonus}\n"
                 msg += f"🔴 R3: ${res3:.2f} | Prob: {prob_r3:.0f}% (MOONSHOT)\n"
-                msg += f"💡 *Punta al massimo: segui il trend a R2!*"
+                msg += f"\n💡 *Punta al massimo: vendi a R2 o R3!*"
             else:
-                # Per la watchlist normale diamo solo i livelli base
-                msg += f"\n🚀 RESISTENZA: ${res1:.2f}\n"
-                msg += f"🛡️ SUPPORTO: ${sup1:.2f}\n"
+                msg += f"\n🚀 RESISTENZA (R1): ${res1:.2f}\n"
+                msg += f"🛡️ SUPPORTO (S1): ${sup1:.2f}\n"
 
             msg += f"\n----------------------------\n"
             msg += f"🤖 IA: {commento_ia}"
@@ -158,24 +159,29 @@ def analyze_stock(ticker):
 def main():
     tz_ny = pytz.timezone('US/Eastern')
     now_ny = datetime.now(tz_ny)
+    
+    # 1. STOP CHIUSURA MERCATO
     if now_ny.hour > 15 or (now_ny.hour == 15 and now_ny.minute >= 45):
         print(f"\n🛑 ORARIO DI CHIUSURA (NY: {now_ny.strftime('%H:%M')}). Scanner in pausa.")
         return
 
-    all_tickers = sorted(list(set(MY_PORTFOLIO + WATCHLIST_200)))
-    now = datetime.now()
+    # 2. GESTIONE PRIORITÀ PORTFOLIO (RIMUOVI DUPLICATI)
+    set_portfolio = set(MY_PORTFOLIO)
+    set_watchlist = set(WATCHLIST_200)
+    watchlist_pulita = list(set_watchlist - set_portfolio)
+    all_tickers = sorted(MY_PORTFOLIO + watchlist_pulita)
     
     print(f"\n{'='*50}")
-    print(f"🚀 AVVIO SCANSIONE PRO - {now.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"🚀 AVVIO SCANSIONE PRO - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"💼 Titoli Portfolio: {len(MY_PORTFOLIO)}")
+    print(f"🛰️ Titoli Watchlist: {len(watchlist_pulita)}")
     print(f"{'='*50}\n")
     
     for t in all_tickers:
         analyze_stock(t)
         time.sleep(0.5)
 
-    print(f"\n{'='*50}")
-    print(f"✅ SCANSIONE COMPLETATA")
-    print(f"{'='*50}")
+    print(f"\n{'='*50}\n✅ SCANSIONE COMPLETATA\n{'='*50}")
 
 if __name__ == "__main__":
     main()
