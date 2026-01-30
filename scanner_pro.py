@@ -136,9 +136,34 @@ def analyze_stock(ticker):
         print(f"| Errore su {ticker}: {str(e)}")
 
 def main():
-    all_tickers = sorted(list(set(MY_PORTFOLIO + WATCHLIST_200)))
-    now = datetime.now()
-    
-    # --- VARIAZIONE SUGGERITA: Header nel log di GitHub ---
-    print(f"\n{'='*50}")
-    print(f"🚀 AVVIO SCANNER PRO - {now.strftime('%Y-%m-%d %H:%M:%S')}")
+    print("\n--- 🟢 ENTRATO IN MAIN ---")
+    try:
+        all_tickers = sorted(list(set(MY_PORTFOLIO + WATCHLIST_200)))
+        now = datetime.now()
+        
+        print(f"📊 Titoli da analizzare: {len(all_tickers)}")
+        print(f"⏰ Orario attuale: {now.strftime('%H:%M:%S')}")
+        print("-" * 30)
+        
+        # Messaggio di avvio Telegram (solo se orario corretto)
+        if now.hour == 15 and now.minute < 15:
+            print("📩 Inviando avvio sessione a Telegram...")
+            send_telegram(f"🚀 **Scanner Pro 2026: Avviato**\nMonitoraggio: {len(all_tickers)} titoli.")
+        else:
+            print("ℹ️ Messaggio Telegram saltato (fuori dalla finestra 16:00-16:15).")
+
+        for t in all_tickers:
+            # Questo DEVE apparire per ogni titolo
+            analyze_stock(t)
+            time.sleep(0.5)
+
+        print("\n" + "="*30)
+        print("✅ SCANSIONE COMPLETATA CON SUCCESSO")
+        print("="*30)
+
+    except Exception as e:
+        print(f"❌ ERRORE CRITICO IN MAIN: {str(e)}")
+
+if __name__ == "__main__":
+    print("--- 🏁 CHIAMATA ALLA FUNZIONE MAIN ---")
+    main()strftime('%Y-%m-%d %H:%M:%S')}")
