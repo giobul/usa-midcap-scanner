@@ -1,3 +1,7 @@
+import sys
+print("--- TEST DI AVVIO ---")
+print(f"Versione Python: {sys.version}")
+
 import yfinance as yf
 import pandas as pd
 import os
