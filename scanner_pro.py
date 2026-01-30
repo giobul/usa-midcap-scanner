@@ -10,7 +10,7 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 # --- 2. IL TUO PORTAFOGLIO (Gestione Attiva) ---
-MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "PLTR", "SOUN", "IONQ", "BBAI", "HIMS", "CLSK", "MARA"]
+MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "BBAI"]
 
 # --- 3. WATCHLIST 200 MID-CAP (Incluso ADCT) ---
 WATCHLIST_200 = [
