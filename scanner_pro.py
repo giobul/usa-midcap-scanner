@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 import time
 import os
 import requests
+import pytz  # Aggiunta per la gestione fusi orari
 
 # 1. Test immediato di output
 print("--- TEST DI AVVIO ---")
@@ -51,23 +52,31 @@ def send_telegram(message):
 def analyze_stock(ticker):
     global alert_history
     try:
+        # --- FILTRO ANTI-STREGHE (MODIFICA APPORTATA QUI) ---
+        tz_ny = pytz.timezone('US/Eastern')
+        now_ny = datetime.now(tz_ny)
+        
+        # Se sono le 15:45 a NY (21:45 in Italia) o più tardi, blocca tutto
+        if now_ny.hour > 15 or (now_ny.hour == 15 and now_ny.minute >= 45):
+            # Stampiamo il messaggio solo una volta per ticker nel log
+            return 
+
         now = datetime.now()
         if ticker in alert_history and now < alert_history[ticker] + timedelta(minutes=45):
             return
 
-        # Scarichiamo i dati (1 mese per SMA e Pivot)
+        # Scarichiamo i dati
         data = yf.download(ticker, period="1mo", interval="15m", progress=False)
         if data.empty: return
 
         df = data.copy()
         df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
 
-        # --- CALCOLO SUPPORTI E RESISTENZE (Pivot Points) ---
+        # --- CALCOLO SUPPORTI E RESISTENZE ---
         high_prev = df['High'].max()
         low_prev = df['Low'].min()
         close_prev = df['Close'].iloc[-2]
         
-        # Resistenza (R1) e Supporto (S1) semplificati
         pivot = (high_prev + low_prev + close_prev) / 3
         res1 = (2 * pivot) - low_prev
         sup1 = (2 * pivot) - high_prev
@@ -110,7 +119,6 @@ def analyze_stock(ticker):
             commento_ia = "Assorbimento ordini in corso."
 
         if tipo_alert:
-            # Segnale visivo su GitHub per invio Telegram
             print(f"📩 INVIO TELEGRAM!") 
             
             msg = f"*{tipo_alert}*\n📊 **TITOLO: {ticker}**\n"
@@ -132,12 +140,19 @@ def analyze_stock(ticker):
         print(f"| Errore: {str(e)}")
 
 def main():
+    # Controllo orario anche nel main per evitare cicli inutili a fine giornata
+    tz_ny = pytz.timezone('US/Eastern')
+    now_ny = datetime.now(tz_ny)
+    if now_ny.hour > 15 or (now_ny.hour == 15 and now_ny.minute >= 45):
+        print(f"\n🛑 ORARIO DI CHIUSURA (NY: {now_ny.strftime('%H:%M')}). Scanner in pausa per evitare i falsi segnali delle streghe.")
+        return
+
     all_tickers = sorted(list(set(MY_PORTFOLIO + WATCHLIST_200)))
     now = datetime.now()
     
     print(f"\n{'='*50}")
     print(f"🚀 AVVIO SCANSIONE PRO - {now.strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"🛡️ Filtri attivi: Trend SMA20, Reiezione, Direzione Prezzo")
+    print(f"🛡️ Filtri attivi: Trend SMA20, Reiezione, Orario Anti-Streghe")
     print(f"{'='*50}\n")
     
     for t in all_tickers:
@@ -145,11 +160,6 @@ def main():
         time.sleep(0.5)
 
     print(f"\n{'='*50}")
-    print(f"✅ SCANSIONE COMPLETATA")
-    print(f"{'='*50}")
-
-if __name__ == "__main__":
-    main()
     print(f"✅ SCANSIONE COMPLETATA")
     print(f"{'='*50}")
 
