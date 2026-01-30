@@ -52,13 +52,11 @@ def send_telegram(message):
 def analyze_stock(ticker):
     global alert_history
     try:
-        # --- FILTRO ANTI-STREGHE (MODIFICA APPORTATA QUI) ---
+        # --- FILTRO ANTI-STREGHE ---
         tz_ny = pytz.timezone('US/Eastern')
         now_ny = datetime.now(tz_ny)
         
-        # Se sono le 15:45 a NY (21:45 in Italia) o più tardi, blocca tutto
         if now_ny.hour > 15 or (now_ny.hour == 15 and now_ny.minute >= 45):
-            # Stampiamo il messaggio solo una volta per ticker nel log
             return 
 
         now = datetime.now()
@@ -72,13 +70,17 @@ def analyze_stock(ticker):
         df = data.copy()
         df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
 
-        # --- CALCOLO SUPPORTI E RESISTENZE ---
+        # --- CALCOLO PIVOT POINTS (R1, R2, R3) ---
         high_prev = df['High'].max()
         low_prev = df['Low'].min()
         close_prev = df['Close'].iloc[-2]
         
         pivot = (high_prev + low_prev + close_prev) / 3
+        range_prev = high_prev - low_prev
+        
         res1 = (2 * pivot) - low_prev
+        res2 = pivot + range_prev
+        res3 = high_prev + 2 * (pivot - low_prev)
         sup1 = (2 * pivot) - high_prev
 
         # --- INDICATORI PRO ---
@@ -93,16 +95,17 @@ def analyze_stock(ticker):
         std_vol = df['Volume'].tail(20).std()
         z_score = (vol - avg_vol) / std_vol if std_vol > 0 else 0
 
-        # Filtri
+        # Filtri Qualità
         prezzo_sale = cp > op
         sopra_trend = cp > current_sma20
         corpo = abs(cp - op)
         ombra_sup = hi - max(cp, op)
         non_respinto = ombra_sup < (corpo * 0.4) if corpo > 0 else False
 
-        # Calcolo distanze %
-        dist_res = ((res1 - cp) / cp) * 100
-        dist_sup = ((cp - sup1) / cp) * 100
+        # Calcolo Probabilità Dinamiche (Basate su Z-Score)
+        prob_r1 = min(85, 45 + (z_score * 10)) if z_score > 0 else 30
+        prob_r2 = min(65, 20 + (z_score * 12)) if z_score > 0 else 10
+        prob_r3 = min(40, 5 + (z_score * 8)) if z_score > 0 else 2
 
         # Output Log GitHub
         print(f"📊 {ticker:5} | CP: {cp:7.2f} | Z: {z_score:5.1f}", end=" ")
@@ -119,15 +122,28 @@ def analyze_stock(ticker):
             commento_ia = "Assorbimento ordini in corso."
 
         if tipo_alert:
-            print(f"📩 INVIO TELEGRAM!") 
+            # Segnale visivo su GitHub
+            print(f"📩 INVIO TELEGRAM PER {ticker}!") 
             
+            # --- COSTRUZIONE MESSAGGIO ---
             msg = f"*{tipo_alert}*\n📊 **TITOLO: {ticker}**\n"
             msg += f"----------------------------\n"
             msg += f"💰 PREZZO: ${cp:.2f} ({var_pct:+.2f}%)\n"
-            msg += f"⚡ **Z-VOL: {z_score:.1f}**\n\n"
-            msg += f"🚀 RESISTENZA: ${res1:.2f} (a {dist_res:+.1f}%)\n"
-            msg += f"🛡️ SUPPORTO: ${sup1:.2f} (a -{dist_sup:.1f}%)\n"
-            msg += f"----------------------------\n"
+            msg += f"⚡ **Z-VOL: {z_score:.1f}**\n"
+            
+            # --- SE IL TITOLO È IN PORTAFOGLIO: TARGET AGGRESSIVI ---
+            if ticker in MY_PORTFOLIO:
+                msg += f"\n🎯 **TARGET E PROBABILITÀ PRO:**\n"
+                msg += f"🟢 R1: ${res1:.2f} | Prob: {prob_r1:.0f}%\n"
+                msg += f"🟠 R2: ${res2:.2f} | Prob: {prob_r2:.0f}% (BIG WHALE)\n"
+                msg += f"🔴 R3: ${res3:.2f} | Prob: {prob_r3:.0f}% (MOONSHOT)\n"
+                msg += f"💡 *Punta al massimo: segui il trend a R2!*"
+            else:
+                # Per la watchlist normale diamo solo i livelli base
+                msg += f"\n🚀 RESISTENZA: ${res1:.2f}\n"
+                msg += f"🛡️ SUPPORTO: ${sup1:.2f}\n"
+
+            msg += f"\n----------------------------\n"
             msg += f"🤖 IA: {commento_ia}"
             
             send_telegram(msg)
@@ -140,11 +156,10 @@ def analyze_stock(ticker):
         print(f"| Errore: {str(e)}")
 
 def main():
-    # Controllo orario anche nel main per evitare cicli inutili a fine giornata
     tz_ny = pytz.timezone('US/Eastern')
     now_ny = datetime.now(tz_ny)
     if now_ny.hour > 15 or (now_ny.hour == 15 and now_ny.minute >= 45):
-        print(f"\n🛑 ORARIO DI CHIUSURA (NY: {now_ny.strftime('%H:%M')}). Scanner in pausa per evitare i falsi segnali delle streghe.")
+        print(f"\n🛑 ORARIO DI CHIUSURA (NY: {now_ny.strftime('%H:%M')}). Scanner in pausa.")
         return
 
     all_tickers = sorted(list(set(MY_PORTFOLIO + WATCHLIST_200)))
@@ -152,7 +167,6 @@ def main():
     
     print(f"\n{'='*50}")
     print(f"🚀 AVVIO SCANSIONE PRO - {now.strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"🛡️ Filtri attivi: Trend SMA20, Reiezione, Orario Anti-Streghe")
     print(f"{'='*50}\n")
     
     for t in all_tickers:
