@@ -1,17 +1,27 @@
 import sys
+
+# 1. Test immediato di output
 print("--- TEST DI AVVIO ---")
 print(f"Versione Python: {sys.version}")
 
-import yfinance as yf
-import pandas as pd
-import os
-import time
-import requests
-from datetime import datetime, timedelta
+try:
+    print("Caricamento librerie...", end=" ", flush=True)
+    import yfinance as yf
+    import pandas as pd
+    import os
+    import time
+    import requests
+    from datetime import datetime, timedelta
+    print("✅ OK")
+except Exception as e:
+    print(f"❌ ERRORE LIBRERIE: {str(e)}")
+    sys.exit(1)
 
 # --- 1. CONFIGURAZIONE CREDENZIALI ---
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+print(f"Debug Env: Token={'Presente' if TOKEN else 'Mancante'}, ChatID={'Presente' if CHAT_ID else 'Mancante'}")
 
 # --- 2. PORTAFOGLIO & WATCHLIST ---
 MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "BBAI", "SOFI"] # Aggiunto SOFI come da tue info
