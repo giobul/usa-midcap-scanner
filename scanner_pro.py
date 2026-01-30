@@ -1,4 +1,8 @@
 import sys
+from datetime import datetime, timedelta
+import time
+import os
+import requests
 
 # 1. Test immediato di output
 print("--- TEST DI AVVIO ---")
@@ -8,10 +12,6 @@ try:
     print("Caricamento librerie...", end=" ", flush=True)
     import yfinance as yf
     import pandas as pd
-    import os
-    import time
-    import requests
-    from datetime import datetime, timedelta
     print("✅ OK")
 except Exception as e:
     print(f"❌ ERRORE LIBRERIE: {str(e)}")
@@ -21,10 +21,8 @@ except Exception as e:
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-print(f"Debug Env: Token={'Presente' if TOKEN else 'Mancante'}, ChatID={'Presente' if CHAT_ID else 'Mancante'}")
-
 # --- 2. PORTAFOGLIO & WATCHLIST ---
-MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "BBAI", "SOFI"] # Aggiunto SOFI come da tue info
+MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "BBAI", "SOFI"]
 
 WATCHLIST_200 = [
     "RKLB","LYFT","ADCT","VRT","CLS","PSTG","ANET","SMCI","AVGO","MRVL","WOLF","MU","ARM","SOXQ","POWI","DIOD","RMBS","NVDA","TSM","ASML","AMAT",
@@ -57,101 +55,101 @@ def analyze_stock(ticker):
         if ticker in alert_history and now < alert_history[ticker] + timedelta(minutes=45):
             return
 
-        data = yf.download([ticker, "SPY"], period="20d", interval="15m", progress=False)
-        if data.empty or ticker not in data['Close']: 
-            print(f"⚠️ {ticker}: Dati non disponibili.")
-            return
-        
-        df = pd.DataFrame({
-            'Close': data['Close'][ticker],
-            'Volume': data['Volume'][ticker],
-            'High': data['High'][ticker],
-            'Low': data['Low'][ticker]
-        }).dropna()
-        
-        if len(df) < 2: return
+        # Scarichiamo i dati (1 mese per SMA e Pivot)
+        data = yf.download(ticker, period="1mo", interval="15m", progress=False)
+        if data.empty: return
 
-        spy_close = data['Close']['SPY'].dropna()
-        spy_change = (spy_close.iloc[-1] - spy_close.iloc[-2]) / spy_close.iloc[-2]
+        df = data.copy()
+        df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
+
+        # --- CALCOLO SUPPORTI E RESISTENZE (Pivot Points) ---
+        high_prev = df['High'].max()
+        low_prev = df['Low'].min()
+        close_prev = df['Close'].iloc[-2]
         
+        # Resistenza (R1) e Supporto (S1) semplificati
+        pivot = (high_prev + low_prev + close_prev) / 3
+        res1 = (2 * pivot) - low_prev
+        sup1 = (2 * pivot) - high_prev
+
+        # --- INDICATORI PRO ---
+        df['SMA20'] = df['Close'].rolling(window=20).mean()
+        current_sma20 = float(df['SMA20'].iloc[-1])
         cp = float(df['Close'].iloc[-1])
+        op = float(df['Open'].iloc[-1])
         hi = float(df['High'].iloc[-1])
-        prev_cp = float(df['Close'].iloc[-2])
-        lo_prev = float(df['Low'].iloc[-2])
         vol = float(df['Volume'].iloc[-1])
         
         avg_vol = df['Volume'].tail(20).mean()
         std_vol = df['Volume'].tail(20).std()
         z_score = (vol - avg_vol) / std_vol if std_vol > 0 else 0
-        
-        # --- VARIAZIONE SUGGERITA: Print di controllo per GitHub ---
-        print(f"📊 {ticker:5} | Prezzo: {cp:8.2f} | Z-VOL: {z_score:5.2f}", end=" ")
 
-        if (hi - cp) > (hi - prev_cp) * 0.4: 
-            print("| Reiezione rilevata")
-            return
+        # Filtri
+        prezzo_sale = cp > op
+        sopra_trend = cp > current_sma20
+        corpo = abs(cp - op)
+        ombra_sup = hi - max(cp, op)
+        non_respinto = ombra_sup < (corpo * 0.4) if corpo > 0 else False
 
-        res_20d = float(df['Close'].max())
-        delta = df['Close'].diff()
-        gain = delta.where(delta > 0, 0).tail(14).mean()
-        loss = (-delta.where(delta < 0, 0)).tail(14).mean()
-        rs = gain / loss if loss > 0 else (gain / 0.001)
-        rsi = float(100 - (100 / (1 + rs)))
+        # Calcolo distanze %
+        dist_res = ((res1 - cp) / cp) * 100
+        dist_sup = ((cp - sup1) / cp) * 100
 
-        var_pct = ((cp - prev_cp) / prev_cp) * 100
-        is_stronger_than_market = var_pct > (spy_change * 100)
-        
-        tipo_alert, commento_ia, stop_info = "", "", ""
+        # Output Log GitHub
+        print(f"📊 {ticker:5} | CP: {cp:7.2f} | Z: {z_score:5.1f}", end=" ")
 
-        if z_score > 3.0 and var_pct > 0.70 and is_stronger_than_market:
-            tipo_alert = "🚀 BREAKOUT + SWEEP 🚀" if cp >= res_20d else "🐋 SWEEP CALL"
-            commento_ia = f"Volume anomalo (Z-VOL {z_score:.1f}). Balene in acquisto."
-        
-        elif 2.0 < z_score < 3.0 and abs(var_pct) < 0.30:
+        # --- LOGICA ALERT ---
+        var_pct = ((cp - op) / op) * 100
+        tipo_alert, commento_ia = "", ""
+
+        if z_score > 3.0 and prezzo_sale and sopra_trend and non_respinto:
+            tipo_alert = "🐋 SWEEP CALL"
+            commento_ia = "Balene in spinta. Trend confermato."
+        elif 2.0 < z_score < 3.0 and abs(var_pct) < 0.30 and sopra_trend:
             tipo_alert = "🧊 ICEBERG (Accumulo)"
-            commento_ia = "Assorbimento ordini rilevato. Accumulo istituzionale."
-
-        if ticker in MY_PORTFOLIO:
-            if rsi >= 75 or cp >= res_20d:
-                stop_info = f"\n🛡️ **TRAILING STOP: ${lo_prev:.2f}**"
-                if z_score < 1.0:
-                    tipo_alert = "🚨 ATTENZIONE: DIVERGENZA 🚨"
-                    commento_ia = "Prezzo su, Balene giù. Possibile svuotamento."
-                else:
-                    tipo_alert = "⚠️ MONITORAGGIO: TREND FORTE ⚠️"
-                    commento_ia = "Trend sano. Alza lo stop e cavalca."
+            commento_ia = "Assorbimento ordini in corso."
 
         if tipo_alert:
-            print(f"| 🔔 ALERT: {tipo_alert}") # Conferma nel log di GitHub
-            msg = f"{tipo_alert}\n📊 **TITOLO: {ticker}**\n----------------------------\n"
-            msg += f"💰 PREZZO: ${cp:.2f} ({var_pct:+.2f}%)\n⚡ **Z-VOL: {z_score:.1f}**\n"
-            msg += f"🔥 RSI: {rsi:.1f}\n----------------------------\n🤖 IA: {commento_ia}{stop_info}"
+            # Segnale visivo su GitHub per invio Telegram
+            print(f"📩 INVIO TELEGRAM!") 
+            
+            msg = f"*{tipo_alert}*\n📊 **TITOLO: {ticker}**\n"
+            msg += f"----------------------------\n"
+            msg += f"💰 PREZZO: ${cp:.2f} ({var_pct:+.2f}%)\n"
+            msg += f"⚡ **Z-VOL: {z_score:.1f}**\n\n"
+            msg += f"🚀 RESISTENZA: ${res1:.2f} (a {dist_res:+.1f}%)\n"
+            msg += f"🛡️ SUPPORTO: ${sup1:.2f} (a -{dist_sup:.1f}%)\n"
+            msg += f"----------------------------\n"
+            msg += f"🤖 IA: {commento_ia}"
             
             send_telegram(msg)
             alert_history[ticker] = now
         else:
-            print("| OK") # Chiude la riga nel log se non c'è alert
+            motivo = "Reiezione" if not non_respinto and z_score > 2 else "OK"
+            print(f"| {motivo}")
 
     except Exception as e:
-        print(f"| Errore su {ticker}: {str(e)}")
+        print(f"| Errore: {str(e)}")
 
 def main():
     all_tickers = sorted(list(set(MY_PORTFOLIO + WATCHLIST_200)))
     now = datetime.now()
     
     print(f"\n{'='*50}")
-    print(f"🚀 AVVIO SCANSIONE - {now.strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"📈 Monitoraggio di {len(all_tickers)} titoli")
+    print(f"🚀 AVVIO SCANSIONE PRO - {now.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"🛡️ Filtri attivi: Trend SMA20, Reiezione, Direzione Prezzo")
     print(f"{'='*50}\n")
-    
-    if now.hour == 15 and now.minute < 15:
-        send_telegram(f"🚀 **Scanner Pro 2026: Avviato**\nMonitoraggio: {len(all_tickers)} titoli.")
     
     for t in all_tickers:
         analyze_stock(t)
         time.sleep(0.5)
 
     print(f"\n{'='*50}")
+    print(f"✅ SCANSIONE COMPLETATA")
+    print(f"{'='*50}")
+
+if __name__ == "__main__":
+    main()
     print(f"✅ SCANSIONE COMPLETATA")
     print(f"{'='*50}")
 
