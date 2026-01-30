@@ -3,14 +3,13 @@ import pandas as pd
 import os
 import time
 import requests
-import csv
 from datetime import datetime, timedelta
 
 # --- 1. CONFIGURAZIONE CREDENZIALI ---
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# --- 2. IL TUO PORTAFOGLIO PRIORITARIO (Gestione Attiva) ---
+# --- 2. IL TUO PORTAFOGLIO (Gestione Attiva) ---
 MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "PLTR", "SOUN", "IONQ", "BBAI", "HIMS", "CLSK", "MARA"]
 
 # --- 3. WATCHLIST 200 MID-CAP (Incluso ADCT) ---
@@ -27,7 +26,6 @@ WATCHLIST_200 = [
     "NKE","LULU","UAA","DECK","CROX","VFC","TPR","CPRI","RL","PVH","KSS","M","JWN","TGT","WMT","COST","BJ","SFM","WBA"
 ]
 
-LOG_FILE = "trading_log.csv"
 alert_history = {} 
 
 def send_telegram(message):
@@ -41,6 +39,7 @@ def analyze_stock(ticker):
     global alert_history
     try:
         now = datetime.now()
+        # Evita alert ripetitivi sullo stesso titolo per 45 minuti
         if ticker in alert_history and now < alert_history[ticker] + timedelta(minutes=45):
             return
 
@@ -60,7 +59,7 @@ def analyze_stock(ticker):
         prev_cp = float(df[ticker].iloc[-2])
         vol = float(df['Volume'].iloc[-1])
         
-        # Filtro qualità candela
+        # Filtro qualità: evita di segnalare se c'è stata una forte reiezione (ombra alta)
         if (hi - cp) > (hi - prev_cp) * 0.4: return
 
         avg_vol = df['Volume'].tail(20).mean()
@@ -69,6 +68,7 @@ def analyze_stock(ticker):
         
         res_20d = float(df[ticker].max())
         
+        # Calcolo RSI semplificato
         delta = df[ticker].diff()
         gain = (delta.where(delta > 0, 0)).tail(14).mean()
         loss = (-delta.where(delta < 0, 0)).tail(14).mean()
@@ -79,28 +79,26 @@ def analyze_stock(ticker):
         
         tipo_alert, commento_ia, stop_info = "", "", ""
 
-        # --- LOGICA 1: ACQUISTO (Valida per tutti) ---
+        # --- LOGICA 1: ACQUISTO ---
         if z_score > 3.0 and var_pct > 0.70 and is_stronger_than_market:
-            tipo_alert = "🚀 BREAKOUT STORICO + SWEEP 🚀" if cp >= res_20d else "🐋 SWEEP CALL (Aggressione)"
-            commento_ia = f"Forte spinta delle balene (Z-VOL {z_score:.1f}). Ingresso di qualità."
+            tipo_alert = "🚀 BREAKOUT + SWEEP 🚀" if cp >= res_20d else "🐋 SWEEP CALL"
+            commento_ia = f"Volume anomalo (Z-VOL {z_score:.1f}). Balene in acquisto."
         
         elif 2.0 < z_score < 3.0 and abs(var_pct) < 0.30:
             tipo_alert = "🧊 ICEBERG (Accumulo)"
-            commento_ia = "Accumulo silenzioso istituzionale rilevato. Qualcuno sta riempiendo le borse."
+            commento_ia = "Assorbimento ordini rilevato. Accumulo istituzionale."
 
-        # --- LOGICA 2 & 3: GESTIONE (Solo per MY_PORTFOLIO) ---
+        # --- LOGICA 2 & 3: GESTIONE PORTFOLIO ---
         if ticker in MY_PORTFOLIO:
             if rsi >= 75 or cp >= res_20d:
                 stop_info = f"\n🛡️ **TRAILING STOP CONSIGLIATO: ${lo_prev:.2f}**"
                 
                 if z_score < 1.0:
-                    # LOGICA 3: DIVERGENZA
-                    tipo_alert = "🚨 ATTENZIONE: DIVERGENZA / USCITA BALENE 🚨"
-                    commento_ia = "Prezzo alto ma volumi desertici (Z-VOL basso). Le balene non stanno più comprando. Pericolo crollo!"
+                    tipo_alert = "🚨 ATTENZIONE: DIVERGENZA 🚨"
+                    commento_ia = "Prezzo su, Balene giù. Possibile svuotamento posizioni."
                 else:
-                    # LOGICA 2: TREND FORTE
                     tipo_alert = "⚠️ MONITORAGGIO: TREND FORTE ⚠️"
-                    commento_ia = "Ipercomprato supportato da volumi reali. Il trend è sano: alza lo stop e lascia correre."
+                    commento_ia = "Trend sano e supportato. Alza lo stop e cavalca."
 
         if tipo_alert:
             msg = f"{tipo_alert}\n📊 **TITOLO: {ticker}**\n----------------------------\n"
@@ -115,9 +113,13 @@ def analyze_stock(ticker):
 
 def main():
     all_tickers = sorted(list(set(MY_PORTFOLIO + WATCHLIST_200)))
-    is_manual = os.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch"
-    if is_manual or datetime.now().hour == 15:
-        send_telegram(f"🚀 **Scanner Pro 2026: Sessione Avviata**\nMonitoraggio su {len(all_tickers)} titoli.\nStrategia: No Limits & Dynamic Stop.")
+    
+    # Orario UTC (15 = 16:00 italiane)
+    now = datetime.now()
+    # Invia il messaggio di avvio SOLO nel primo quarto d'ora dell'apertura (16:00-16:14)
+    if now.hour == 15 and now.minute < 15:
+        send_telegram(f"🚀 **Scanner Pro 2026: Sessione Avviata**\nMonitoraggio: {len(all_tickers)} titoli.\nStrategia: No Limits.")
+    
     for t in all_tickers:
         analyze_stock(t)
         time.sleep(1)
