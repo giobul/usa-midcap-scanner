@@ -139,8 +139,13 @@ def analyze_stock(ticker):
                 msg += f"🟢 R1: ${res1:.2f} | Prob: {prob_r1:.0f}%\n"
                 msg += f"🟠 R2: ${res2:.2f} | Prob: {prob_r2:.0f}% (BIG WHALE) {whale_bonus}\n"
                 msg += f"🔴 R3: ${res3:.2f} | Prob: {prob_r3:.0f}% (MOONSHOT)\n"
+                
+                # --- AGGIUNTA SUPPORTO QUI ---
+                msg += f"🛡️ **SUPPORTO CHIAVE: ${sup1:.2f}**\n"
+                
                 msg += f"\n💡 *Punta al massimo: vendi a R2 o R3!*"
             else:
+                # Per la watchlist normale diamo solo i livelli base
                 msg += f"\n🚀 RESISTENZA (R1): ${res1:.2f}\n"
                 msg += f"🛡️ SUPPORTO (S1): ${sup1:.2f}\n"
 
