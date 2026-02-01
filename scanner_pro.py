@@ -52,11 +52,10 @@ def send_telegram(message):
 def analyze_stock(ticker):
     global alert_history
     try:
-        # --- FILTRO ANTI-STREGHE (ORARIO NY) ---
         tz_ny = pytz.timezone('US/Eastern')
         now_ny = datetime.now(tz_ny)
         
-        # Blocca dalle 15:45 EST (21:45 ITA) in poi
+        # FILTRO ORARIO: Blocca dalle 15:45 EST (21:45 ITA) in poi
         if now_ny.hour > 15 or (now_ny.hour == 15 and now_ny.minute >= 45):
             return 
 
@@ -71,7 +70,7 @@ def analyze_stock(ticker):
         df = data.copy()
         df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
 
-        # --- CALCOLO TARGET R1, R2, R3 ---
+        # --- CALCOLO LIVELLI ---
         high_prev = df['High'].max()
         low_prev = df['Low'].min()
         close_prev = df['Close'].iloc[-2]
@@ -84,7 +83,7 @@ def analyze_stock(ticker):
         res3 = high_prev + 2 * (pivot - low_prev)
         sup1 = (2 * pivot) - high_prev
 
-        # --- INDICATORI TECNICI ---
+        # --- INDICATORI ---
         df['SMA20'] = df['Close'].rolling(window=20).mean()
         current_sma20 = float(df['SMA20'].iloc[-1])
         cp = float(df['Close'].iloc[-1])
@@ -103,12 +102,11 @@ def analyze_stock(ticker):
         ombra_sup = hi - max(cp, op)
         non_respinto = ombra_sup < (corpo * 0.4) if corpo > 0 else False
 
-        # Calcolo Probabilità Dinamiche
+        # Probabilità Dinamiche
         prob_r1 = min(85, 45 + (z_score * 10)) if z_score > 0 else 30
         prob_r2 = min(65, 20 + (z_score * 12)) if z_score > 0 else 10
         prob_r3 = min(40, 5 + (z_score * 8)) if z_score > 0 else 2
 
-        # Log GitHub
         print(f"📊 {ticker:5} | CP: {cp:7.2f} | Z: {z_score:5.1f}", end=" ")
 
         # --- LOGICA ALERT ---
@@ -139,13 +137,9 @@ def analyze_stock(ticker):
                 msg += f"🟢 R1: ${res1:.2f} | Prob: {prob_r1:.0f}%\n"
                 msg += f"🟠 R2: ${res2:.2f} | Prob: {prob_r2:.0f}% (BIG WHALE) {whale_bonus}\n"
                 msg += f"🔴 R3: ${res3:.2f} | Prob: {prob_r3:.0f}% (MOONSHOT)\n"
-                
-                # --- AGGIUNTA SUPPORTO QUI ---
                 msg += f"🛡️ **SUPPORTO CHIAVE: ${sup1:.2f}**\n"
-                
                 msg += f"\n💡 *Punta al massimo: vendi a R2 o R3!*"
             else:
-                # Per la watchlist normale diamo solo i livelli base
                 msg += f"\n🚀 RESISTENZA (R1): ${res1:.2f}\n"
                 msg += f"🛡️ SUPPORTO (S1): ${sup1:.2f}\n"
 
@@ -164,13 +158,25 @@ def analyze_stock(ticker):
 def main():
     tz_ny = pytz.timezone('US/Eastern')
     now_ny = datetime.now(tz_ny)
+    today_str = now_ny.strftime('%Y-%m-%d')
     
-    # 1. STOP CHIUSURA MERCATO
-    if now_ny.hour > 15 or (now_ny.hour == 15 and now_ny.minute >= 45):
-        print(f"\n🛑 ORARIO DI CHIUSURA (NY: {now_ny.strftime('%H:%M')}). Scanner in pausa.")
+    # --- FILTRO WEEKEND & FESTIVITÀ 2026 ---
+    holidays_2026 = [
+        "2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03", 
+        "2026-05-25", "2026-06-19", "2026-07-03", "2026-09-07", 
+        "2026-11-26", "2026-12-25"
+    ]
+    
+    if now_ny.weekday() >= 5 or today_str in holidays_2026:
+        print(f"\n☕ MERCATO CHIUSO (NY: {now_ny.strftime('%A %d %b')}). Bot in pausa.")
         return
 
-    # 2. GESTIONE PRIORITÀ PORTFOLIO (RIMUOVI DUPLICATI)
+    # 1. STOP CHIUSURA MERCATO
+    if now_ny.hour > 15 or (now_ny.hour == 15 and now_ny.minute >= 45):
+        print(f"\n🛑 ORARIO DI CHIUSURA. Scanner in pausa.")
+        return
+
+    # 2. GESTIONE PRIORITÀ
     set_portfolio = set(MY_PORTFOLIO)
     set_watchlist = set(WATCHLIST_200)
     watchlist_pulita = list(set_watchlist - set_portfolio)
@@ -178,15 +184,11 @@ def main():
     
     print(f"\n{'='*50}")
     print(f"🚀 AVVIO SCANSIONE PRO - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"💼 Titoli Portfolio: {len(MY_PORTFOLIO)}")
-    print(f"🛰️ Titoli Watchlist: {len(watchlist_pulita)}")
     print(f"{'='*50}\n")
     
     for t in all_tickers:
         analyze_stock(t)
         time.sleep(0.5)
-
-    print(f"\n{'='*50}\n✅ SCANSIONE COMPLETATA\n{'='*50}")
 
 if __name__ == "__main__":
     main()
