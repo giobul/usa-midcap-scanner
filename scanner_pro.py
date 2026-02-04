@@ -6,7 +6,7 @@ import requests
 import pytz
 
 # 1. TEST DI AVVIO E CARICAMENTO LIBRERIE
-print("--- TEST DI AVVIO ---")
+print("--- TEST DI AVVIO SCANNER PRO 2026 ---")
 print(f"Versione Python: {sys.version}")
 
 try:
@@ -52,18 +52,12 @@ def send_telegram(message):
 def analyze_stock(ticker):
     global alert_history
     try:
-        tz_ny = pytz.timezone('US/Eastern')
-        now_ny = datetime.now(tz_ny)
-        
-        # FILTRO ORARIO: Blocca dalle 15:45 EST (21:45 ITA) in poi
-        if now_ny.hour > 15 or (now_ny.hour == 15 and now_ny.minute >= 45):
-            return 
-
         now = datetime.now()
+        # Non inviare alert per lo stesso titolo prima di 45 minuti
         if ticker in alert_history and now < alert_history[ticker] + timedelta(minutes=45):
             return
 
-        # Scarico dati
+        # Scarico dati (Yahoo ha 15 min di ritardo)
         data = yf.download(ticker, period="1mo", interval="15m", progress=False)
         if data.empty: return
 
@@ -128,7 +122,7 @@ def analyze_stock(ticker):
             
             msg = f"{header}\n*{tipo_alert}*\n📊 **TITOLO: {ticker}**\n"
             msg += f"----------------------------\n"
-            msg += f"💰 PREZZO: ${cp:.2f} ({var_pct:+.2f}%)\n"
+            msg += f"💰 PREZZO (Rit. 15m): ${cp:.2f} ({var_pct:+.2f}%)\n"
             msg += f"⚡ **Z-VOL: {z_score:.1f}**\n"
             
             if is_portfolio:
@@ -138,12 +132,13 @@ def analyze_stock(ticker):
                 msg += f"🟠 R2: ${res2:.2f} | Prob: {prob_r2:.0f}% (BIG WHALE) {whale_bonus}\n"
                 msg += f"🔴 R3: ${res3:.2f} | Prob: {prob_r3:.0f}% (MOONSHOT)\n"
                 msg += f"🛡️ **SUPPORTO CHIAVE: ${sup1:.2f}**\n"
-                msg += f"\n💡 *Punta al massimo: vendi a R2 o R3!*"
+                msg += f"\n💡 *Punta ai 50€: vendi a R2 o R3!*"
             else:
                 msg += f"\n🚀 RESISTENZA (R1): ${res1:.2f}\n"
                 msg += f"🛡️ SUPPORTO (S1): ${sup1:.2f}\n"
 
             msg += f"\n----------------------------\n"
+            msg += f"⚠️ *Dati Yahoo ritardati di 15 min*\n"
             msg += f"🤖 IA: {commento_ia}"
             
             send_telegram(msg)
@@ -171,19 +166,26 @@ def main():
         print(f"\n☕ MERCATO CHIUSO (NY: {now_ny.strftime('%A %d %b')}). Bot in pausa.")
         return
 
-    # 1. STOP CHIUSURA MERCATO
-    if now_ny.hour > 15 or (now_ny.hour == 15 and now_ny.minute >= 45):
-        print(f"\n🛑 ORARIO DI CHIUSURA. Scanner in pausa.")
+    # --- 1. FILTRO APERTURA (10:30 NY = 16:30 ITA) ---
+    # Aspettiamo 10:30 NY perché i dati Yahoo delle 10:15 (post-caos) arrivano con 15 min di ritardo.
+    if now_ny.hour < 10 or (now_ny.hour == 10 and now_ny.minute < 30):
+        print(f"⏳ ATTESA: Lo scanner partirà alle 16:30 ITA (dati Yahoo delle 16:15).")
         return
 
-    # 2. GESTIONE PRIORITÀ
+    # --- 2. FILTRO CHIUSURA (15:45 NY = 21:45 ITA) ---
+    # Ci fermiamo prima della chiusura reale per evitare volatilità senza direzione.
+    if now_ny.hour > 15 or (now_ny.hour == 15 and now_ny.minute >= 45):
+        print(f"\n🛑 ORARIO DI CHIUSURA. Scanner in pausa fino a domani.")
+        return
+
+    # 3. GESTIONE PRIORITÀ
     set_portfolio = set(MY_PORTFOLIO)
     set_watchlist = set(WATCHLIST_200)
     watchlist_pulita = list(set_watchlist - set_portfolio)
     all_tickers = sorted(MY_PORTFOLIO + watchlist_pulita)
     
     print(f"\n{'='*50}")
-    print(f"🚀 AVVIO SCANSIONE PRO - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"🚀 AVVIO SCANSIONE PRO (Dati ritardati 15m) - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*50}\n")
     
     for t in all_tickers:
