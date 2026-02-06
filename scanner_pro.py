@@ -152,7 +152,15 @@ def main():
     for t in all_tickers:
         analyze_stock(t)
         time.sleep(0.5)
+# ... (parte superiore uguale)
+        data = yf.download(ticker, period="5d", interval="15m", progress=False)
+        if len(data) < 20: # <--- PROTEZIONE DATI INSUFFICIENTI
+            print(f"📊 {ticker:5} | Dati insufficienti per RSI")
+            return
 
+        # ... (resto del calcolo)
+    except Exception as e:
+        print(f"❌ ERRORE CRITICO su {ticker}: {str(e)}") # <--- Ti dirà cos'è successo!
 if __name__ == "__main__":
     main()
 
