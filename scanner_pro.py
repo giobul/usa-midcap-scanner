@@ -6,7 +6,7 @@ import requests
 import pytz
 
 # --- 1. TEST DI AVVIO E CARICAMENTO LIBRERIE ---
-print("--- SCANNER PRO 2026: VERSIONE RSI + STOP LOSS ---")
+print("--- SCANNER PRO 2026: VERSIONE RSI + STOP LOSS + SMA20 ---")
 try:
     import yfinance as yf
     import pandas as pd
@@ -107,6 +107,7 @@ def analyze_stock(ticker):
             msg += f"💰 PREZZO: ${cp:.2f} ({var_pct:+.2f}%)\n"
             msg += f"⚡ **Z-VOL: {z_score:.1f}** | 📈 **RSI: {current_rsi:.1f}**\n"
             msg += f"📉 **COMPRESSIONE: {range_totale_pct:.2f}%**\n"
+            msg += f"📊 **SMA20: ${current_sma20:.2f}**\n"
             
             if is_portfolio:
                 msg += f"\n🎯 **PIANO DI TRADING:**\n"
