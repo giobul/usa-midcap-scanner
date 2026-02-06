@@ -96,7 +96,7 @@ def analyze_stock(ticker):
             pivot = (high_p + low_p + close_p) / 3
             res1 = (2 * pivot) - low_p
             res2 = pivot + (high_p - low_p)
-            stop_loss = lo * 0.999 
+            stop_loss = lo * 0.995 
 
             is_portfolio = ticker in MY_PORTFOLIO
             header = "💼 [MY PORTFOLIO]" if is_portfolio else "🛰️ [WATCHLIST]"
