@@ -6,7 +6,7 @@ import requests
 import pytz
 
 # --- 1. TEST DI AVVIO E CARICAMENTO LIBRERIE ---
-print("--- SCANNER PRO 2026: VERSIONE ICEBERG DETECTOR + STOP LOSS + RSI ---")
+print("--- SCANNER PRO 2026: VERSIONE RSI + STOP LOSS ---")
 try:
     import yfinance as yf
     import pandas as pd
@@ -53,7 +53,7 @@ def analyze_stock(ticker):
             return
 
         data = yf.download(ticker, period="5d", interval="15m", progress=False)
-        if data.empty: return
+        if len(data) < 20: return
 
         df = data.copy()
         df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
@@ -67,7 +67,6 @@ def analyze_stock(ticker):
         avg_vol = df['Volume'].tail(20).mean()
         std_vol = df['Volume'].tail(20).std()
         z_score = (vol - avg_vol) / std_vol if std_vol > 0 else 0
-
         range_totale_pct = ((hi - lo) / cp) * 100
         
         # --- FILTRI QUALITÀ E RSI ---
@@ -83,14 +82,11 @@ def analyze_stock(ticker):
 
         sopra_trend = cp > current_sma20
         prezzo_sale = cp > op
-
         tipo_alert, commento_ia = "", ""
 
-        # Aggiunta condizione RSI < 70 per evitare entrate in ipercomprato
         if z_score > 3.0 and prezzo_sale and sopra_trend and range_totale_pct > 0.40 and current_rsi < 70:
             tipo_alert = "🐋 SWEEP CALL"
             commento_ia = f"Aggressione istituzionale. RSI: {current_rsi:.1f}."
-
         elif z_score > 2.0 and range_totale_pct < 0.25 and sopra_trend and current_rsi < 70:
             tipo_alert = "🧊 ICEBERG (Assorbimento)"
             commento_ia = f"Muro a ${cp:.2f}. RSI: {current_rsi:.1f}."
@@ -128,7 +124,6 @@ def analyze_stock(ticker):
             print(f"📩 ALERT INVIATO PER {ticker}!")
         else:
             print(f"📊 {ticker:5} | CP: {cp:7.2f} | Z: {z_score:4.1f} | RSI: {current_rsi:4.1f} | No Alert")
-
     except Exception as e:
         print(f"| Errore {ticker}: {str(e)}")
 
@@ -152,15 +147,6 @@ def main():
     for t in all_tickers:
         analyze_stock(t)
         time.sleep(0.5)
-# ... (parte superiore uguale)
-        data = yf.download(ticker, period="5d", interval="15m", progress=False)
-        if len(data) < 20: # <--- PROTEZIONE DATI INSUFFICIENTI
-            print(f"📊 {ticker:5} | Dati insufficienti per RSI")
-            return
 
-        # ... (resto del calcolo)
-    except Exception as e:
-        print(f"❌ ERRORE CRITICO su {ticker}: {str(e)}") # <--- Ti dirà cos'è successo!
 if __name__ == "__main__":
     main()
-
