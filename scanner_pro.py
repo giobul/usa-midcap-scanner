@@ -23,29 +23,47 @@ if not TOKEN or not CHAT_ID:
 MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "BBAI", "SOFI", "AGEN", "DKNG", "QUBT", "ETOR", "ADCT", "APLD"]
 
 WATCHLIST_200 = [
-   "SNOW", "DDOG", "NET", "ZS", "CRWD", "MDB", "ESTC", "DOCN", "GTLB", "AI",
+   # Cloud & SaaS
+    "SNOW", "DDOG", "NET", "ZS", "CRWD", "MDB", "ESTC", "DOCN", "GTLB", "AI",
     "PCOR", "APPN", "BILL", "ZI", "SMAR", "JAMF", "DT", "S", "TENB", "PANW",
-    "FTNT", "CYBR", "OKTA", "U", "RBLX", "PLTK", "BIGC", "ASAN", "MNDY",
+    "FTNT", "CYBR", "OKTA", "PING", "U", "RBLX", "PLTK", "BIGC", "ASAN", "MNDY",
     "IOT", "TWLO", "ZM", "SHOP", "UBER", "OKLO", "ALTI", "VRT", "CLS", "PSTG", "ANET",
+    
+    # Semiconductors
     "NVDA", "AMD", "ARM", "AVGO", "TSM", "ASML", "MU", "AMAT", "LRCX", "KLAC",
     "SMCI", "MRVL", "ON", "MPWR", "SWKS", "QRVO", "WOLF", "CRUS", "ALGM", "POWI", 
     "DIOD", "LSCC", "RMBS", "COHU", "FORM", "ONTO", "NVTS", "PLAB", "IRDM", "ALAB",
+    
+    # AI & Quantum
     "PLTR", "SOUN", "GFAI", "CIFR", "CORZ", "WULF", "IONQ", "QBTS", "ARQQ", "IRBT",
-    "BLDE", "MKSI", "GRMN", "ISRG", "NNDM", "DM", "SSYS", "SOUND", "SERV",
+    "BLDE", "MKSI", "GRMN", "ISRG", "NNDM", "DM", "SSYS", "WAVE",
+    
+    # FinTech & Crypto
     "AFRM", "UPST", "NU", "PAGS", "MELI", "SQ", "PYPL", "COIN", "HOOD", "MARA",
     "RIOT", "CLSK", "MSTR", "BTBT", "HUT", "ARBK", "BITF", "TOST", "FOUR", "GPN",
     "EVTC", "LC", "TREE", "ENVA", "OPY", "LPRO", "VIRT", "IBKR",
+    
+    # Energy & Nuclear
     "SMR", "VST", "CEG", "NNE", "CCJ", "UUUU", "DNN", "NXE", "UEC", "FSLR", 
     "ENPH", "SEDG", "RUN", "NOVA", "CSIQ", "JKS", "SOL", "FLNC", "CHPT", "BLNK", 
-    "EVGO", "STEM", "PLUG", "BLDP", "BE", "GCT", "TLNE", "ETN", "NEE", "BW", "LNL",
-    "RKLB", "ASTS", "LUNR", "PL", "SPIR", "BKSY", "SIDU", "ACHR", "JOBY", "LILM",
+    "EVGO", "STEM", "PLUG", "BLDP", "BE", "GCT", "TLNE", "ETN", "NEE",
+    
+    # Space & Aerospace
+    "RKLB", "ASTS", "LUNR", "PL", "SPIR", "BKSY", "ACHR", "JOBY", "LILM",
     "EVTL", "AVAV", "KTOS", "HWM", "VSAT", "LHX", "BA", "LMT", "RTX", "GD", 
-    "NOC", "AXON", "HOLO", "RIVN", "LCID", "TSLA", "NIO", "XPEV", "LI", 
-    "NKLA", "WKHS", "HYLN", "LEV", "MVST", "LAZR", "OUST", "AUR", "INVZ", 
-    "LYFT", "CVNA", "QS", "TDOC", "DOCS", "ONEM", "ACCD", "HIMS", "LFST", "GH", 
-    "PGNY", "SDGR", "ALHC", "VKTX", "IOVA", "VERV", "CRSP", "NTLA", 
+    "NOC", "AXON", "HOLO",
+    
+    # EV & Mobility
+    "RIVN", "LCID", "TSLA", "NIO", "XPEV", "LI", 
+    "NKLA", "WKHS", "HYLN", "LEV", "MVST", "LAZR", "OUST",
+    "AUR", "INVZ", "LYFT", "CVNA", "QS",
+    
+    # Healthcare & Biotech
+    "TDOC", "DOCS", "ONEM", "ACCD", "HIMS", "LFST", "GH", 
+    "PGNY", "SDGR", "ALHC", "VKTX", "RXDX", "KRTX", "IOVA", "VERV", "CRSP", "NTLA", 
     "BEAM", "EDIT", "BLUE", "ALT", "AMAM", "IBX", "MREO", "CYTK"
 ]
+
 
 ALERT_LOG = Path.home() / ".scanner_alerts.json"
 SCAN_LOG = Path.home() / ".scanner_scan_log.txt"
