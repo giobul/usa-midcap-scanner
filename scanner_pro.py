@@ -14,7 +14,7 @@ from pathlib import Path
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "BBAI", "SOFI", "AGEN", "DKNG", "QUBT", "ETOR", "ADCT", "APLD"]
-WATCHLIST_200 = [WATCHLIST_200 = [
+WATCHLIST_200 = [
     # --- IL TUO PORTAFOGLIO & WATCHLIST CORE ---
     "STNE", "PATH", "RGTI", "BBAI", "SOFI", "AGEN", "DKNG", "QUBT", "ETOR",
     "ALTI", "OKLO", "APLD", "RKLB", "LYFT", "ADCT", "VRT", "CLS", "PSTG", 
