@@ -235,10 +235,19 @@ def analyze_stock(ticker):
     try:
         session, now_ny = get_market_session()
         
-        # FILTRO APERTURA (09:30 - 10:00 NY)
-        if session == 'REGULAR' and dtime(9, 30) <= now_ny.time() < dtime(10, 0):
-            logging.debug(f"Skipping {ticker} during market open volatility")
-            return
+        # FILTRI VOLATILITÀ (APERTURA + CHIUSURA)
+        if session == 'REGULAR':
+            current_time = now_ny.time()
+            
+            # Blocca apertura (9:30-10:00)
+            if dtime(9, 30) <= current_time < dtime(10, 0):
+                logging.debug(f"Skipping {ticker} during market open volatility")
+                return
+            
+            # Blocca ultima mezz'ora (15:30-16:00)
+            if dtime(15, 30) <= current_time < dtime(16, 0):
+                logging.debug(f"Skipping {ticker} during market close volatility (Power Hour)")
+                return
 
         df = yf.download(ticker, period="5d", interval="15m", progress=False)
         
