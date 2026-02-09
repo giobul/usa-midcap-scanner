@@ -23,29 +23,25 @@ if not TOKEN or not CHAT_ID:
 MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "BBAI", "SOFI", "AGEN", "DKNG", "QUBT", "ETOR", "ADCT", "APLD"]
 
 WATCHLIST_200 = [
-   "SNOW", "DDOG", "NET", "ZS", "CRWD", "MDB", "ESTC", "DOCN", "GTLB", "AI",
-    "PCOR", "APPN", "BILL", "ZI", "SMAR", "DT", "S", "TENB", "PANW",
-    "FTNT", "CYBR", "OKTA", "U", "RBLX", "PLTK", "ASAN", "MNDY",
-    "IOT", "TWLO", "ZM", "SHOP", "UBER", "OKLO", "ALTI", "VRT", "CLS", "PSTG", "ANET",
-    "NVDA", "AMD", "ARM", "AVGO", "TSM", "ASML", "MU", "AMAT", "LRCX", "KLAC",
-    "SMCI", "MRVL", "ON", "MPWR", "SWKS", "QRVO", "WOLF", "CRUS", "ALGM", "POWI", 
-    "DIOD", "LSCC", "RMBS", "COHU", "FORM", "ONTO", "NVTS", "PLAB", "IRDM", "ALAB",
-    "PLTR", "SOUN", "GFAI", "CIFR", "CORZ", "WULF", "IONQ", "QBTS", "ARQQ",
-    "MKSI", "GRMN", "ISRG", "NNDM", "SSYS", "SOUND", "SERV",
-    "AFRM", "UPST", "NU", "PAGS", "MELI", "SQ", "PYPL", "COIN", "HOOD", "MARA",
-    "RIOT", "CLSK", "MSTR", "BTBT", "HUT", "ARBK", "BITF", "TOST", "FOUR", "GPN",
-    "EVTC", "LC", "TREE", "ENVA", "OPY", "LPRO", "VIRT", "IBKR",
-    "SMR", "VST", "CEG", "NNE", "CCJ", "UUUU", "DNN", "NXE", "UEC", "FSLR", 
-    "ENPH", "SEDG", "RUN", "CSIQ", "JKS", "SOL", "FLNC", "CHPT", "BLNK", 
-    "EVGO", "STEM", "PLUG", "BLDP", "BE", "GCT", "TLNE", "ETN", "NEE", "BW",
-    "RKLB", "ASTS", "LUNR", "PL", "SPIR", "BKSY", "SIDU", "ACHR", "JOBY",
-    "EVTL", "AVAV", "KTOS", "HWM", "VSAT", "LHX", "BA", "LMT", "RTX", "GD", 
-    "NOC", "AXON", "HOLO", "RIVN", "LCID", "TSLA", "NIO", "XPEV", "LI", 
-    "WKHS", "HYLN", "MVST", "OUST", "AUR", "INVZ", 
-    "LYFT", "CVNA", "QS", "TDOC", "DOCS", "HIMS", "LFST", "GH", 
-    "PGNY", "SDGR", "ALHC", "VKTX", "IOVA", "VERV", "CRSP", "NTLA", 
-    "BEAM", "EDIT", "ALT", "MREO", "CYTK"
-]
+    "SNOW", "DDOG", "NET", "ZS", "CRWD", "MDB", "ESTC", "DOCN", "GTLB", "AI",
+    "PCOR", "APPN", "BILL", "TENB", "PANW", "FTNT", "CYBR", "OKTA", "U", "RBLX", 
+    "PLTK", "ASAN", "MNDY", "IOT", "TWLO", "ZM", "SHOP", "UBER", "OKLO", "ALTI", 
+    "VRT", "CLS", "PSTG", "ANET", "NVDA", "AMD", "ARM", "AVGO", "TSM", "ASML", 
+    "MU", "AMAT", "LRCX", "KLAC", "SMCI", "MRVL", "ON", "MPWR", "SWKS", "QRVO", 
+    "WOLF", "CRUS", "ALGM", "POWI", "DIOD", "LSCC", "RMBS", "COHU", "FORM", "ONTO", 
+    "NVTS", "PLAB", "IRDM", "ALAB", "PLTR", "SOUN", "GFAI", "CIFR", "CORZ", "WULF", 
+    "IONQ", "QBTS", "ARQQ", "MKSI", "GRMN", "ISRG", "NNDM", "SSYS", "SERV",
+    "AFRM", "UPST", "NU", "PAGS", "MELI", "COIN", "HOOD", "MARA", "RIOT", "CLSK", 
+    "MSTR", "BTBT", "HUT", "ARBK", "BITF", "TOST", "FOUR", "GPN", "EVTC", "LC", 
+    "TREE", "ENVA", "OPY", "LPRO", "VIRT", "IBKR", "SMR", "VST", "CEG", "NNE", 
+    "CCJ", "UUUU", "DNN", "NXE", "UEC", "FSLR", "ENPH", "SEDG", "RUN", "CSIQ", 
+    "JKS", "FLNC", "CHPT", "BLNK", "EVGO", "STEM", "PLUG", "BLDP", "BE", "GCT", 
+    "TLNE", "ETN", "NEE", "BW", "RKLB", "ASTS", "LUNR", "PL", "SPIR", "BKSY", 
+    "SIDU", "ACHR", "JOBY", "EVTL", "AVAV", "KTOS", "HWM", "VSAT", "LHX", "BA", 
+    "LMT", "RTX", "GD", "NOC", "AXON", "HOLO", "RIVN", "LCID", "TSLA", "NIO", 
+    "XPEV", "LI", "WKHS", "HYLN", "MVST", "OUST", "AUR", "INVZ", "LYFT", "CVNA", 
+    "QS", "TDOC", "DOCS", "HIMS", "LFST", "GH", "PGNY", "SDGR", "ALHC", "VKTX", 
+    "IOVA", "CRSP", "NTLA", "BEAM", "EDIT", "ALT", "MREO", "CYTK"]
 
 
 ALERT_LOG = Path.home() / ".scanner_alerts.json"
