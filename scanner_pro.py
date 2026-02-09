@@ -13,8 +13,43 @@ from pathlib import Path
 # --- CONFIGURAZIONE ---
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "BBAI", "SOFI", "AGEN", "DKNG", "QUBT", "ETOR"]
-WATCHLIST_200 = ["ALTI", "OKLO","APLD","RKLB","LYFT","ADCT","VRT","CLS","PSTG","ANET","SMCI","NVDA","TSM"]
+MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "BBAI", "SOFI", "AGEN", "DKNG", "QUBT", "ETOR", "ADCT", "APLD"]
+WATCHLIST_200 = [WATCHLIST_200 = [
+    # --- IL TUO PORTAFOGLIO & WATCHLIST CORE ---
+    "STNE", "PATH", "RGTI", "BBAI", "SOFI", "AGEN", "DKNG", "QUBT", "ETOR",
+    "ALTI", "OKLO", "APLD", "RKLB", "LYFT", "ADCT", "VRT", "CLS", "PSTG", 
+    "ANET", "SMCI", "NVDA", "TSM",
+    
+    # --- AI, CHIPS & BIG TECH MOMENTUM ---
+    "AMD", "ARM", "AVGO", "MU", "ASML", "AMAT", "LRCX", "KLAC", "PLTR", "SNOW",
+    "NET", "CRWD", "ZS", "DDOG", "MDB", "MSFT", "GOOGL", "META", "AMZN", "AAPL",
+    
+    # --- ENERGY, NUCLEAR & DATA CENTERS (AI Infrastructure) ---
+    "SMR", "VST", "CEG", "TLNE", "ETN", "GCT", "GE", "NEE", "FSLR", "ENPH", 
+    "BW", "NNE", "FLNC", "LNL", "TER", "NXE", "CCJ", "UUUU",
+    
+    # --- QUANTUM COMPUTING & EMERGING TECH ---
+    "IONQ", "SOUND", "SOUN", "SERV", "GFAI", "QBTS", "D_WAVE", "ARQQ", "CRBU",
+    
+    # --- SPACE & DEFENSE ---
+    "LUNR", "PL", "LLAP", "HWM", "KTOS", "BA", "LMT", "NOC", "LHX", "RTX",
+    "SPIR", "BKSY", "SIDU", "RKLB",
+    
+    # --- FINTECH, CRYPTO & GROWTH ---
+    "NU", "MELI", "PAGS", "SQ", "PYPL", "HOOD", "COIN", "MARA", "RIOT", "CLSK",
+    "MSTR", "AFRM", "UPST", "TOST", "SHOP", "SE", "U", "RBLX",
+    
+    # --- SEMICONDUCTORS & HARDWARE MID-CAP ---
+    "MRVL", "ONT", "ALAB", "ASTS", "VICR", "POWI", "DIOD", "LSCC", "RMBS",
+    
+    # --- BIOTECH & HEALTHCARE (High Volatility) ---
+    "VKTX", "ALT", "AMAM", "IBX", "MREO", "RXDX", "CYTK", "IOVA", "KRTX",
+    
+    # --- SELEZIONE MID-CAP & MOMENTUM (Russell 2000 laggards/leaders) ---
+    "GME", "AMC", "CVNA", "AI", "C3", "UPWK", "FIVR", "PINS", "SNAP", "RIVN", 
+    "LCID", "QS", "CHPT", "BLNK", "RUN", "SPWR", "TDOC", "RSRV", "SYM", "JOBY",
+    "ACHR", "AUR", "LAZR", "INVZ", "HOLO"
+]
 
 # File persistente per cooldown
 ALERT_LOG = Path.home() / ".scanner_alerts.json"
