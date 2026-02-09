@@ -24,27 +24,27 @@ MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "BBAI", "SOFI", "AGEN", "DKNG", "QUBT", 
 
 WATCHLIST_200 = [
    "SNOW", "DDOG", "NET", "ZS", "CRWD", "MDB", "ESTC", "DOCN", "GTLB", "AI",
-    "PCOR", "APPN", "BILL", "ZI", "SMAR", "JAMF", "DT", "S", "TENB", "PANW",
+    "PCOR", "APPN", "BILL", "ZI", "SMAR", "DT", "S", "TENB", "PANW",
     "FTNT", "CYBR", "OKTA", "U", "RBLX", "PLTK", "ASAN", "MNDY",
     "IOT", "TWLO", "ZM", "SHOP", "UBER", "OKLO", "ALTI", "VRT", "CLS", "PSTG", "ANET",
     "NVDA", "AMD", "ARM", "AVGO", "TSM", "ASML", "MU", "AMAT", "LRCX", "KLAC",
     "SMCI", "MRVL", "ON", "MPWR", "SWKS", "QRVO", "WOLF", "CRUS", "ALGM", "POWI", 
     "DIOD", "LSCC", "RMBS", "COHU", "FORM", "ONTO", "NVTS", "PLAB", "IRDM", "ALAB",
-    "PLTR", "SOUN", "GFAI", "CIFR", "CORZ", "WULF", "IONQ", "QBTS", "ARQQ", "IRBT",
-    "MKSI", "GRMN", "ISRG", "NNDM", "DM", "SSYS", "SOUND", "SERV",
+    "PLTR", "SOUN", "GFAI", "CIFR", "CORZ", "WULF", "IONQ", "QBTS", "ARQQ",
+    "MKSI", "GRMN", "ISRG", "NNDM", "SSYS", "SOUND", "SERV",
     "AFRM", "UPST", "NU", "PAGS", "MELI", "SQ", "PYPL", "COIN", "HOOD", "MARA",
     "RIOT", "CLSK", "MSTR", "BTBT", "HUT", "ARBK", "BITF", "TOST", "FOUR", "GPN",
     "EVTC", "LC", "TREE", "ENVA", "OPY", "LPRO", "VIRT", "IBKR",
     "SMR", "VST", "CEG", "NNE", "CCJ", "UUUU", "DNN", "NXE", "UEC", "FSLR", 
-    "ENPH", "SEDG", "RUN", "NOVA", "CSIQ", "JKS", "SOL", "FLNC", "CHPT", "BLNK", 
-    "EVGO", "STEM", "PLUG", "BLDP", "BE", "GCT", "TLNE", "ETN", "NEE", "BW", "LNL",
-    "RKLB", "ASTS", "LUNR", "PL", "SPIR", "BKSY", "SIDU", "ACHR", "JOBY", "LILM",
+    "ENPH", "SEDG", "RUN", "CSIQ", "JKS", "SOL", "FLNC", "CHPT", "BLNK", 
+    "EVGO", "STEM", "PLUG", "BLDP", "BE", "GCT", "TLNE", "ETN", "NEE", "BW",
+    "RKLB", "ASTS", "LUNR", "PL", "SPIR", "BKSY", "SIDU", "ACHR", "JOBY",
     "EVTL", "AVAV", "KTOS", "HWM", "VSAT", "LHX", "BA", "LMT", "RTX", "GD", 
     "NOC", "AXON", "HOLO", "RIVN", "LCID", "TSLA", "NIO", "XPEV", "LI", 
-    "NKLA", "WKHS", "HYLN", "LEV", "MVST", "LAZR", "OUST", "AUR", "INVZ", 
-    "LYFT", "CVNA", "QS", "TDOC", "DOCS", "ONEM", "HIMS", "LFST", "GH", 
+    "WKHS", "HYLN", "MVST", "OUST", "AUR", "INVZ", 
+    "LYFT", "CVNA", "QS", "TDOC", "DOCS", "HIMS", "LFST", "GH", 
     "PGNY", "SDGR", "ALHC", "VKTX", "IOVA", "VERV", "CRSP", "NTLA", 
-    "BEAM", "EDIT", "BLUE", "ALT", "IBX", "MREO", "CYTK"
+    "BEAM", "EDIT", "ALT", "MREO", "CYTK"
 ]
 
 
