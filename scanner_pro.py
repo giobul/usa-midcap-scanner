@@ -13,47 +13,53 @@ from pathlib import Path
 # --- CONFIGURAZIONE ---
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+# Portafoglio per monitoraggio prioritario
 MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "BBAI", "SOFI", "AGEN", "DKNG", "QUBT", "ETOR", "ADCT", "APLD"]
+
+# LISTA COMPLETA 200+ TICKER
 WATCHLIST_200 = [
-    # --- IL TUO PORTAFOGLIO & WATCHLIST CORE ---
-    "STNE", "PATH", "RGTI", "BBAI", "SOFI", "AGEN", "DKNG", "QUBT", "ETOR",
-    "ALTI", "OKLO", "APLD", "RKLB", "LYFT", "ADCT", "VRT", "CLS", "PSTG", 
-    "ANET", "SMCI", "NVDA", "TSM",
+    # --- TECNOLOGIA & SOFTWARE ---
+    "SNOW", "DDOG", "NET", "ZS", "CRWD", "MDB", "ESTC", "DOCN", "GTLB", "AI",
+    "PCOR", "APPN", "BILL", "ZI", "SMAR", "JAMF", "DT", "S", "TENB", "PANW",
+    "FTNT", "CYBR", "OKTA", "PING", "U", "RBLX", "PLTK", "BIGC", "ASAN", "MNDY",
+    "IOT", "TWLO", "ZM", "SHOP", "UBER", "OKLO", "ALTI", "VRT", "CLS", "PSTG", "ANET",
     
-    # --- AI, CHIPS & BIG TECH MOMENTUM ---
-    "AMD", "ARM", "AVGO", "MU", "ASML", "AMAT", "LRCX", "KLAC", "PLTR", "SNOW",
-    "NET", "CRWD", "ZS", "DDOG", "MDB", "MSFT", "GOOGL", "META", "AMZN", "AAPL",
+    # --- SEMICONDUTTORI & HARDWARE ---
+    "NVDA", "AMD", "ARM", "AVGO", "TSM", "ASML", "MU", "AMAT", "LRCX", "KLAC",
+    "SMCI", "MRVL", "ON", "MPWR", "SWKS", "QRVO", "WOLF", "CRUS", "ALGM", "POWI", 
+    "DIOD", "LSCC", "RMBS", "COHU", "FORM", "ONTO", "NVTS", "PLAB", "IRDM", "ALAB",
     
-    # --- ENERGY, NUCLEAR & DATA CENTERS (AI Infrastructure) ---
-    "SMR", "VST", "CEG", "TLNE", "ETN", "GCT", "GE", "NEE", "FSLR", "ENPH", 
-    "BW", "NNE", "FLNC", "LNL", "TER", "NXE", "CCJ", "UUUU",
+    # --- AI, QUANTUM & ROBOTICS ---
+    "PLTR", "SOUN", "GFAI", "CIFR", "CORZ", "WULF", "IONQ", "QBTS", "ARQQ", "IRBT",
+    "BLDE", "MKSI", "GRMN", "ISRG", "NNDM", "DM", "SSYS", "SOUND", "SERV", "D_WAVE",
     
-    # --- QUANTUM COMPUTING & EMERGING TECH ---
-    "IONQ", "SOUND", "SOUN", "SERV", "GFAI", "QBTS", "D_WAVE", "ARQQ", "CRBU",
+    # --- FINTECH & CRYPTO ---
+    "AFRM", "UPST", "NU", "PAGS", "MELI", "SQ", "PYPL", "COIN", "HOOD", "MARA",
+    "RIOT", "CLSK", "MSTR", "BTBT", "HUT", "ARBK", "BITF", "TOST", "FOUR", "GPN",
+    "EVTC", "LC", "TREE", "ENVA", "OPY", "LPRO", "VIRT", "IBKR",
     
-    # --- SPACE & DEFENSE ---
-    "LUNR", "PL", "LLAP", "HWM", "KTOS", "BA", "LMT", "NOC", "LHX", "RTX",
-    "SPIR", "BKSY", "SIDU", "RKLB",
+    # --- ENERGY, NUCLEAR & RENEWABLES ---
+    "SMR", "VST", "CEG", "NNE", "CCJ", "UUUU", "DNN", "NXE", "UEC", "FSLR", 
+    "ENPH", "SEDG", "RUN", "NOVA", "CSIQ", "JKS", "SOL", "FLNC", "CHPT", "BLNK", 
+    "EVGO", "STEM", "PLUG", "BLDP", "BE", "GCT", "TLNE", "ETN", "NEE", "BW", "LNL",
     
-    # --- FINTECH, CRYPTO & GROWTH ---
-    "NU", "MELI", "PAGS", "SQ", "PYPL", "HOOD", "COIN", "MARA", "RIOT", "CLSK",
-    "MSTR", "AFRM", "UPST", "TOST", "SHOP", "SE", "U", "RBLX",
+    # --- AEROSPACE, DEFENSE & SPACE ---
+    "RKLB", "ASTS", "LUNR", "PL", "SPIR", "BKSY", "SIDU", "ACHR", "JOBY", "LILM",
+    "EVTL", "AVAV", "KTOS", "HWM", "VSAT", "LHX", "BA", "LMT", "RTX", "GD", 
+    "NOC", "AXON", "HOLO",
     
-    # --- SEMICONDUCTORS & HARDWARE MID-CAP ---
-    "MRVL", "ONT", "ALAB", "ASTS", "VICR", "POWI", "DIOD", "LSCC", "RMBS",
+    # --- EV, AUTOMOTIVE & MOBILITY ---
+    "RIVN", "LCID", "TSLA", "NIO", "XPEV", "LI", "FSR", "NKLA", "WKHS", "HYLN",
+    "LEV", "MVST", "LAZR", "OUST", "AUR", "INVZ", "VLDR", "LYFT", "CVNA", "QS",
     
-    # --- BIOTECH & HEALTHCARE (High Volatility) ---
-    "VKTX", "ALT", "AMAM", "IBX", "MREO", "RXDX", "CYTK", "IOVA", "KRTX",
-    
-    # --- SELEZIONE MID-CAP & MOMENTUM (Russell 2000 laggards/leaders) ---
-    "GME", "AMC", "CVNA", "AI", "C3", "UPWK", "FIVR", "PINS", "SNAP", "RIVN", 
-    "LCID", "QS", "CHPT", "BLNK", "RUN", "SPWR", "TDOC", "RSRV", "SYM", "JOBY",
-    "ACHR", "AUR", "LAZR", "INVZ", "HOLO"
+    # --- HEALTHCARE & BIOTECH ---
+    "TDOC", "DOCS", "ONEM", "ACCD", "HIMS", "LFST", "GH", "PGNY", "SDGR", "ALHC",
+    "VKTX", "RXDX", "KRTX", "IOVA", "VERV", "CRSP", "NTLA", "BEAM", "EDIT", "BLUE",
+    "ALT", "AMAM", "IBX", "MREO", "CYTK"
 ]
 
-# File persistente per cooldown
 ALERT_LOG = Path.home() / ".scanner_alerts.json"
-alert_history = {}
 
 def load_alert_history():
     if ALERT_LOG.exists():
@@ -61,8 +67,7 @@ def load_alert_history():
             with open(ALERT_LOG, 'r') as f:
                 data = json.load(f)
                 return {k: datetime.fromisoformat(v) for k, v in data.items()}
-        except:
-            return {}
+        except: return {}
     return {}
 
 def save_alert_history(history):
@@ -70,202 +75,130 @@ def save_alert_history(history):
         data = {k: v.isoformat() for k, v in history.items()}
         with open(ALERT_LOG, 'w') as f:
             json.dump(data, f)
-    except Exception as e:
-        print(f"❌ Errore salvataggio log: {e}")
+    except: pass
+
+def get_market_session():
+    tz_ny = pytz.timezone('US/Eastern')
+    now_ny = datetime.now(tz_ny)
+    current_time = now_ny.time()
+    if dtime(4, 0) <= current_time < dtime(9, 30): return 'PRE_MARKET', now_ny
+    elif dtime(9, 30) <= current_time < dtime(16, 0): return 'REGULAR', now_ny
+    elif dtime(16, 0) <= current_time <= dtime(20, 0): return 'AFTER_HOURS', now_ny
+    else: return 'CLOSED', now_ny
 
 def is_market_open():
     tz_ny = pytz.timezone('US/Eastern')
     now_ny = datetime.now(tz_ny)
     if now_ny.weekday() >= 5: return False
-    return dtime(10, 30) <= now_ny.time() <= dtime(15, 45)
+    return dtime(4, 0) <= now_ny.time() <= dtime(20, 0)
 
 def send_telegram(message):
     if TOKEN and CHAT_ID:
         url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
         data = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
-        try:
-            requests.post(url, data=data, timeout=5)
-        except Exception as e:
-            print(f"❌ Errore Telegram: {e}")
+        try: requests.post(url, data=data, timeout=5)
+        except: print("❌ Telegram Error")
 
-def calculate_resistances(df, current_price):
-    """Calcola R1 e R2 usando swing highs + probabilità di raggiungimento"""
-    highs = df['High'].tail(80)
+def detect_dark_pool_activity(df, current_price):
+    if len(df) < 10: return False, 0, ""
+    recent = df.tail(3)
+    avg_vol_recent = recent['Volume'].mean()
+    avg_vol_baseline = df['Volume'].tail(20).mean()
+    vol_ratio = avg_vol_recent / avg_vol_baseline if avg_vol_baseline > 0 else 0
+    price_vol = recent['Close'].std() / current_price if current_price > 0 else 999
+    is_stepping = all(recent['Close'].iloc[i] >= recent['Close'].iloc[i-1] for i in range(1, len(recent)))
     
+    if vol_ratio > 1.6 and price_vol < 0.004 and is_stepping:
+        return True, min(100, int(vol_ratio * 30)), "STEALTH ACCUMULATION"
+    elif vol_ratio > 2.2 and price_vol < 0.012:
+        return True, min(95, int(vol_ratio * 25)), "INSTITUTIONAL BREAKOUT"
+    return False, 0, ""
+
+def calculate_levels(df, current_price):
+    highs = df['High'].tail(100)
     peaks = []
     for i in range(2, len(highs)-2):
         if highs.iloc[i] > highs.iloc[i-1] and highs.iloc[i] > highs.iloc[i-2] and \
            highs.iloc[i] > highs.iloc[i+1] and highs.iloc[i] > highs.iloc[i+2]:
             peaks.append(float(highs.iloc[i]))
     
-    if len(peaks) < 2:
-        R1 = current_price * 1.02
-        R2 = current_price * 1.05
-    else:
-        resistances = sorted([p for p in peaks if p > current_price])
-        
-        if len(resistances) >= 2:
-            R1 = resistances[0]
-            R2 = resistances[1]
-        elif len(resistances) == 1:
-            R1 = resistances[0]
-            R2 = current_price * 1.05
-        else:
-            R1 = current_price * 1.02
-            R2 = current_price * 1.05
+    R1 = sorted([p for p in peaks if p > current_price])[0] if any(p > current_price for p in peaks) else current_price * 1.04
+    R2 = sorted([p for p in peaks if p > R1])[0] if any(p > R1 for p in peaks) else R1 * 1.06
     
-    # Calcolo probabilità
-    tr = np.maximum(df['High']-df['Low'], 
-         np.maximum(abs(df['High']-df['Close'].shift(1)), 
-                    abs(df['Low']-df['Close'].shift(1))))
+    tr = np.maximum(df['High']-df['Low'], np.maximum(abs(df['High']-df['Close'].shift(1)), abs(df['Low']-df['Close'].shift(1))))
     atr = tr.dropna().tail(14).mean()
-    momentum = (df['Close'].iloc[-1] / df['Close'].iloc[-5] - 1) * 100
+    stop_loss = current_price - (2.8 * atr)
     
-    dist_R1 = (R1 - current_price) / atr if atr > 0 else 999
-    dist_R2 = (R2 - current_price) / atr if atr > 0 else 999
-    
-    prob_R1 = min(95, max(10, 50 - (dist_R1 * 15) + (momentum * 2)))
-    prob_R2 = min(90, max(5, 30 - (dist_R2 * 10) + (momentum * 1.5)))
-    
-    return R1, R2, int(prob_R1), int(prob_R2)
+    prob = min(92, max(15, 55 - (((R1 - current_price) / (atr if atr > 0 else 1)) * 12)))
+    return R1, R2, stop_loss, int(prob)
 
 def analyze_stock(ticker):
     global alert_history
     try:
         now = datetime.now()
-        
-        # Cooldown check
-        if ticker in alert_history:
-            if now < alert_history[ticker] + timedelta(hours=1):
-                return
+        if ticker in alert_history and now < alert_history[ticker] + timedelta(hours=3): return
 
-        data = yf.download(ticker, period="5d", interval="15m", progress=False)
-        if data.empty or len(data) < 60: return
-        
-        df = data.copy()
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
+        df = yf.download(ticker, period="5d", interval="15m", progress=False)
+        if df.empty or len(df) < 50: return
+        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
 
-        cp, op = float(df['Close'].iloc[-1]), float(df['Open'].iloc[-1])
-        hi, lo = float(df['High'].iloc[-1]), float(df['Low'].iloc[-1])
+        cp = float(df['Close'].iloc[-1])
         vol = float(df['Volume'].iloc[-1])
         
-        # --- CALCOLO VOLUME PROFILE (POC) ---
-        # Point of Control: prezzo con massimo volume scambiato
+        # --- POC VOLUME PROFILE ---
+        price_bins = pd.cut(df['Close'], bins=20)
         try:
-            price_bins = pd.cut(df['Close'], bins=20)
-            volume_profile = df.groupby(price_bins, observed=True)['Volume'].sum()
-            poc_interval = volume_profile.idxmax()
-            poc_price = float(poc_interval.mid)
-        except:
-            poc_price = cp  # Fallback se il calcolo fallisce
+            poc_price = float(df.groupby(price_bins, observed=True)['Volume'].sum().idxmax().mid)
+        except (ValueError, AttributeError):
+            poc_price = cp  # Fallback al prezzo corrente
         
-        # --- INDICATORI ---
-        delta = df['Close'].diff()
-        gain = delta.where(delta > 0, 0).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss.replace(0, np.nan)
-        current_rsi = 100 - (100 / (1 + rs.fillna(100))).iloc[-1]
-
-        # --- PRICE ACTION ---
-        body = abs(cp - op)
-        u_wick = hi - max(cp, op)
-        is_rejected = u_wick > (body * 1.5) if body > 0 else False
-        
-        range_totale_pct = (hi - lo) / cp 
-        
-        avg_vol = df['Volume'].tail(60).mean()
-        std_vol = df['Volume'].tail(60).std()
-        z_score = (vol - avg_vol) / max(std_vol, avg_vol * 0.1)
+        avg_vol = df['Volume'].tail(50).mean()
+        std = df['Volume'].tail(50).std()
+        z_score = (vol - avg_vol) / (std if std > 1 else 1)
         sma20 = df['Close'].rolling(20).mean().iloc[-1]
-
-        # --- LOGICA ALERT ---
+        
+        is_dp, dp_score, dp_type = detect_dark_pool_activity(df, cp)
+        
         tipo = ""
-        if z_score > 3.0 and cp > op and cp > sma20 and not is_rejected and current_rsi < 70:
-            tipo = "🐋 SWEEP CALL"
-        elif z_score > 2.0 and range_totale_pct < 0.005 and cp > sma20:
-            tipo = "🧊 ICEBERG"
-
+        if is_dp and dp_score >= 65: tipo = f"🕵️ DARK POOL: {dp_type}"
+        elif z_score > 3.5 and cp > sma20: tipo = "🐋 INSTITUTIONAL SWEEP"
+        
         if tipo:
-            # --- CALCOLA RESISTENZE E STOP ---
-            R1_auto, R2_auto, prob_R1, prob_R2 = calculate_resistances(df, cp)
+            R1, R2, stop, prob = calculate_levels(df, cp)
+            dist_poc = abs(cp - poc_price) / poc_price
             
-            tr = np.maximum(df['High']-df['Low'], 
-                 np.maximum(abs(df['High']-df['Close'].shift(1)), 
-                            abs(df['Low']-df['Close'].shift(1))))
-            atr = tr.dropna().tail(14).mean()
-            stop = cp - (2 * atr)
-            
-            # --- RISK/REWARD RATIO ---
-            risk = cp - stop
-            reward = R1_auto - cp
-            rr_ratio = reward / risk if risk > 0 else 0
-            
-            # --- VALIDAZIONE POC ---
-            # Se prezzo attuale è vicino al POC (<2% distanza), segnale MOLTO più forte
-            dist_from_poc = abs(cp - poc_price) / poc_price
-            poc_validation = "✅ VALIDATO (Vicino a POC)" if dist_from_poc < 0.02 else "⚠️ FUORI POC"
-            
-            # --- MESSAGGIO TELEGRAM "ISTITUZIONALE" ---
-            status_icon = "🟢" if cp > sma20 else "🟡"
-            
-            msg = f"🛰️ *{tipo} DETECTED*\n"
-            msg += f"💎 **{ticker}**: `${cp:.2f}` {status_icon}\n"
-            msg += f"📊 Z-Vol: `{z_score:.1f}` | RSI: `{current_rsi:.1f}`\n"
-            msg += f"📍 **POC (Volume Profile)**: `${poc_price:.2f}`\n"
-            msg += f"⚖️ **R/R Ratio**: `{rr_ratio:.2f}` | {poc_validation}\n"
-            msg += f"🚫 Stop (ATR): `${stop:.2f}`\n"
+            msg = f"🛰️ *{tipo}*\n"
+            msg += f"💎 **AZIONE**: `{ticker}`\n"
+            msg += f"💰 **Prezzo**: `${cp:.2f}`\n"
+            msg += f"📍 **POC Support**: `${poc_price:.2f}` ({'🎯 VALID' if dist_poc < 0.02 else 'AWAY'})\n"
+            msg += f"━━━━━━━━━━━━━━━\n"
+            msg += f"🎯 **Target 1**: `${R1:.2f}` ({prob}% prob)\n"
+            msg += f"🚀 **Target 2**: `${R2:.2f}`\n"
+            msg += f"🛡️ **STOP LOSS**: `${stop:.2f}`\n"
             msg += f"━━━━━━━━━━━━━━━\n"
             
-            emoji_R1 = "🎯" if prob_R1 >= 60 else "⚠️" if prob_R1 >= 40 else "🔴"
-            emoji_R2 = "🎯" if prob_R2 >= 50 else "⚠️" if prob_R2 >= 30 else "🔴"
-            
-            msg += f"{emoji_R1} **R1**: `${R1_auto:.2f}` ({prob_R1}% prob)\n"
-            msg += f"{emoji_R2} **R2**: `${R2_auto:.2f}` ({prob_R2}% prob)\n\n"
-            
-            # --- CONCLUSIONE OPERATIVA ---
-            # Combina R/R Ratio + Probabilità + Validazione POC
-            if rr_ratio >= 2.0 and prob_R1 >= 50 and dist_from_poc < 0.02:
-                msg += f"💎 *SET-UP PREMIUM*: Ottimo R/R, alta probabilità e validato da POC"
-            elif rr_ratio >= 2.0 and prob_R1 >= 50:
-                msg += f"✅ *TRADE SOLIDO*: Buon R/R e probabilità favorevole"
-            elif rr_ratio < 1.0:
-                msg += f"📉 *ATTENZIONE*: Rischio superiore al premio (R/R < 1.0)"
-            elif prob_R1 < 40:
-                msg += f"⚠️ *BASSA PROBABILITÀ*: R1 difficile da raggiungere"
-            else:
-                msg += f"⚡️ *MOMENTUM PLAY*: Trade da scalping veloce"
-            
+            if dist_poc < 0.02: msg += "🔥 *PREMIUM SETUP*: Accumulo confermato sul Point of Control."
+            else: msg += "⚡ *MOMENTUM*: Spinta volumetrica in corso."
+
             send_telegram(msg)
-            
-            # Registra alert
             alert_history[ticker] = now
             save_alert_history(alert_history)
-            print(f"📩 Alert: {ticker} @ ${cp:.2f} | R/R: {rr_ratio:.2f} | POC: ${poc_price:.2f}")
-            
-    except Exception as e:
-        print(f"Error {ticker}: {e}")
+
+    except Exception as e: print(f"Error {ticker}: {e}")
 
 def main():
     global alert_history
     alert_history = load_alert_history()
-    
-    # Pulizia log vecchi
-    now = datetime.now()
-    alert_history = {k: v for k, v in alert_history.items() if now < v + timedelta(hours=24)}
-
     if not is_market_open():
-        print("⏳ Fuori orario operativo (16:30 - 21:45 ITA).")
+        print("⏳ Market Closed.")
         return
-
-    all_tickers = sorted(list(set(MY_PORTFOLIO + WATCHLIST_200)))
-    print(f"🚀 Scansione avviata su {len(all_tickers)} titoli...")
     
+    all_tickers = sorted(list(set(MY_PORTFOLIO + WATCHLIST_200)))
+    print(f"🚀 Scanning {len(all_tickers)} stocks...")
     for t in all_tickers:
         analyze_stock(t)
-        time.sleep(0.2)
-    
-    print("✅ Scansione completata.")
+        time.sleep(0.35) # Protezione anti-ban
+    print("✅ Scan Complete.")
 
 if __name__ == "__main__":
     main()
