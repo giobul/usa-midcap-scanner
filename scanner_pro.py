@@ -19,8 +19,8 @@ if not TOKEN or not CHAT_ID:
     print("❌ ERROR: TELEGRAM_TOKEN and TELEGRAM_CHAT_ID must be set!")
     sys.exit(1)
 
+# --- LISTA COMPLETA TICKER ---
 MY_PORTFOLIO = ["STNE", "PATH", "RGTI", "BBAI", "SOFI", "AGEN", "DKNG", "QUBT", "ETOR", "ADCT", "APLD"]
-
 WATCHLIST_200 = [
     "SNOW", "DDOG", "NET", "ZS", "CRWD", "MDB", "ESTC", "DOCN", "GTLB", "AI",
     "PCOR", "APPN", "BILL", "TENB", "PANW", "FTNT", "CYBR", "OKTA", "U", "RBLX", 
@@ -43,50 +43,105 @@ WATCHLIST_200 = [
     "IOVA", "CRSP", "NTLA", "BEAM", "EDIT", "ALT", "MREO", "CYTK"
 ]
 
-ALERT_LOG = Path.home() / ".scanner_alerts.json"
-SCAN_LOG = Path.home() / ".scanner_scan_log.txt"
+# --- LOGGING & BACKTEST FILES ---
+LOG_FILE = Path.home() / "elite_scanner.log"
+BACKTEST_LOG = Path.home() / "scanner_backtest_results.csv"
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s',
-                    handlers=[logging.FileHandler(SCAN_LOG), logging.StreamHandler()])
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.FileHandler(LOG_FILE), logging.StreamHandler()]
+)
 
 CONFIG = {
-    'Z_SCORE_THRESHOLD': 3.0, 
-    'POC_DISTANCE_THRESHOLD': 0.02,
-    'MIN_PROFIT_THRESHOLD': 0.015,
-    'COOLDOWN_HOURS': 6,
-    'SLEEP_BETWEEN_STOCKS': 0.35,
-    'DP_SCORE_REGULAR': 70,
-    'DP_SCORE_OFFHOURS': 75,
-    'ICEBERG_SCORE_THRESHOLD': 80,
-    'SWEEP_VOL_OI_RATIO': 1.5,
-    'ATR_MULTIPLIER': 3.0  # Per la strategia No Limit
+    'COOLDOWN_HOURS': 4,
+    'SLEEP_BETWEEN_STOCKS': 0.75,
+    'MAX_RETRIES': 3,
+    'ATR_MULTIPLIER_STOP': 2.0,
+    'ELITE_CAI_MIN': 82.0,
+    'RISK_PER_TRADE_USD': 500 
 }
 
-# --- UTILITIES ---
+# --- TOOLS ---
 
-def load_alert_history():
-    if ALERT_LOG.exists():
+def download_with_retry(ticker, period="5d", interval="15m"):
+    for attempt in range(CONFIG['MAX_RETRIES']):
         try:
-            with open(ALERT_LOG, 'r') as f:
-                data = json.load(f)
-                return {k: datetime.fromisoformat(v) for k, v in data.items()}
-        except: return {}
-    return {}
+            df = yf.download(ticker, period=period, interval=interval, progress=False)
+            if not df.empty: return df
+        except Exception:
+            time.sleep(2 ** attempt)
+    return pd.DataFrame()
 
-def save_alert_history(history):
+def log_backtest_signal(ticker, price, t1, t2, stop, s_type):
+    file_exists = BACKTEST_LOG.exists()
+    with open(BACKTEST_LOG, 'a') as f:
+        if not file_exists:
+            f.write("timestamp,ticker,entry_price,target1,target2,stop_loss,type\n")
+        f.write(f"{datetime.now()},{ticker},{price},{t1},{t2},{stop},{s_type}\n")
+
+# --- LOGICA ELITE ---
+
+def detect_elite_candle(df):
+    last = df.iloc[-1]
+    avg_vol = df['Volume'].tail(20).mean()
+    body = abs(last['Open'] - last['Close'])
+    lower_shade = min(last['Open'], last['Close']) - last['Low']
+    upper_shade = last['High'] - max(last['Open'], last['Close'])
+    
+    if lower_shade > (body * 2) and upper_shade < body and last['Volume'] > avg_vol * 1.5:
+        return "🔨 HAMMER (ULTRA-VOL)"
+    
+    prev = df.iloc[-2]
+    if last['Close'] > prev['Open'] and last['Open'] < prev['Close'] and last['Close'] > last['Open'] and last['Volume'] > avg_vol * 1.3:
+        return "🔥 BULLISH ENGULFING (VOL+)"
+    return ""
+
+def get_relative_strength(ticker):
     try:
-        data = {k: v.isoformat() for k, v in history.items()}
-        with open(ALERT_LOG, 'w') as f: json.dump(data, f, indent=2)
-    except: pass
+        if ticker in ["STNE", "PAGS", "NU"]: bench = "EWZ"
+        elif ticker in ["NVDA", "AMD", "ARM", "AVGO", "SMCI"]: bench = "SOXX"
+        elif ticker in ["COIN", "MARA", "RIOT"]: bench = "BITO"
+        else: bench = "QQQ"
+        
+        data = download_with_retry(ticker, period="5d", interval="1h")
+        b_data = download_with_retry(bench, period="5d", interval="1h")
+        
+        if data.empty or b_data.empty: return False, 0, bench
+        t_perf = (data['Close'].iloc[-1] / data['Close'].iloc[0]) - 1
+        b_perf = (b_data['Close'].iloc[-1] / b_data['Close'].iloc[0]) - 1
+        return t_perf > b_perf, (t_perf - b_perf) * 100, bench
+    except: return False, 0, "QQQ"
 
-def get_market_session():
-    tz_ny = pytz.timezone('US/Eastern')
-    now_ny = datetime.now(tz_ny)
-    current_time = now_ny.time()
-    if dtime(4, 0) <= current_time < dtime(9, 30): return 'PRE_MARKET', now_ny
-    elif dtime(9, 30) <= current_time < dtime(16, 0): return 'REGULAR', now_ny
-    elif dtime(16, 0) <= current_time <= dtime(20, 0): return 'AFTER_HOURS', now_ny
-    return 'CLOSED', now_ny
+# --- CORE ---
+
+def analyze_stock(ticker):
+    try:
+        df = download_with_retry(ticker, period="5d", interval="15m")
+        if df.empty or len(df) < 30: return
+        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+
+        cp = float(df['Close'].iloc[-1])
+        
+        # CAI Score Fix
+        vol_ratio = (df['Volume'].tail(5).mean() / df['Volume'].tail(50).mean()) if df['Volume'].tail(50).mean() > 0 else 1
+        price_stability = max(0, 1 - (df['Close'].tail(5).std() / cp))
+        cai_score = min(100, (vol_ratio * 50) * price_stability)
+        
+        candle = detect_elite_candle(df)
+        is_strong, rs_val, bench = get_relative_strength(ticker)
+        
+        if cai_score >= CONFIG['ELITE_CAI_MIN'] and is_strong and candle != "":
+            tr = np.maximum(df['High'] - df['Low'], np.maximum(abs(df['High'] - df['Close'].shift(1)), abs(df['Low'] - df['Close'].shift(1))))
+            atr = tr.tail(14).mean()
+            t_stop = cp - (CONFIG['ATR_MULTIPLIER_STOP'] * atr)
+            r1, r2 = cp + (atr * 1.5), cp + (atr * 3.0)
+            
+            log_backtest_signal(ticker, cp, r1, r2, t_stop, "ELITE")
+            msg = f"👑 **ELITE V3.1: {candle}**\n💎 **AZIONE**: `{ticker}`\n💰 **Entry**: `${cp:.2f}` | **RS**: `+{rs_val:.2f}% vs {bench}`\n📊 **CAI**: `{cai_score:.1f}`\n━━━━━━━━━━━━━━━\n🎯 **T1**: `{r1:.2f}` | **T2**: `{r2:.2f}`\n🛡️ **STOP**: `{t_stop:.2f}`"
+            send_telegram(msg)
+            
+    except Exception as e: logging.error(f"Errore {ticker}: {e}")
 
 def is_market_open():
     tz_ny = pytz.timezone('US/Eastern')
@@ -96,133 +151,19 @@ def is_market_open():
 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    data = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
-    try: requests.post(url, data=data, timeout=5)
+    try: requests.post(url, data={"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}, timeout=5)
     except: pass
 
-# --- LOGICA CORE (DARK POOL & ICEBERG) ---
-
-def detect_dark_pool_activity(df, cp):
-    if len(df) < 10: return False, 0, ""
-    recent = df.tail(3)
-    avg_vol_baseline = df['Volume'].tail(20).mean()
-    if avg_vol_baseline == 0: return False, 0, ""
-    vol_ratio = recent['Volume'].mean() / avg_vol_baseline
-    price_vol = recent['Close'].std() / cp if cp > 0 else 999
-    is_stepping = all(recent['Close'].iloc[i] >= recent['Close'].iloc[i-1] for i in range(1, len(recent)))
-    if vol_ratio > 2.5 and price_vol < 0.003 and is_stepping: return True, min(100, int(vol_ratio * 25)), "STEALTH ACCUMULATION"
-    return False, 0, ""
-
-def detect_iceberg_orders(df, cp):
-    if len(df) < 30: return False, 0, ""
-    recent = df.tail(10)
-    avg_vol = recent['Volume'].mean()
-    vol_std = recent['Volume'].std()
-    price_range = (recent['High'].max() - recent['Low'].min()) / cp
-    vol_consistency = 1 - (vol_std / avg_vol) if avg_vol > 0 else 0
-    if vol_consistency > 0.80 and price_range < 0.006: return True, min(95, int(vol_consistency * 100)), "ICEBERG BUY WALL"
-    return False, 0, ""
-
-# --- NUOVE LOGICHE: OPTIONS FLOW & NO LIMIT ---
-
-def get_options_flow(ticker, cp):
-    try:
-        tk = yf.Ticker(ticker)
-        if not tk.options: return ""
-        opt = tk.option_chain(tk.options[0])
-        flow_msg = ""
-        # CALL SWEEP (URGENZA ACQUISTO)
-        c = opt.calls
-        c_sweep = c[(c['volume'] > c['openInterest'] * CONFIG['SWEEP_VOL_OI_RATIO']) & (c['strike'] >= cp)]
-        if not c_sweep.empty:
-            top_c = c_sweep.sort_values('volume', ascending=False).iloc[0]
-            flow_msg += f"🔥 **CALL SWEEP**: Strike `{top_c['strike']}` (Ratio: `{top_c['volume']/top_c['openInterest']:.1f}x`)\n"
-        # PUT SWEEP (SOLO PORTFOLIO - PROTEZIONE)
-        if ticker in MY_PORTFOLIO:
-            p = opt.puts
-            p_sweep = p[(p['volume'] > p['openInterest'] * CONFIG['SWEEP_VOL_OI_RATIO'])]
-            if not p_sweep.empty:
-                top_p = p_sweep.sort_values('volume', ascending=False).iloc[0]
-                flow_msg += f"⚠️ **PUT SWEEP ALERT**: Strike `{top_p['strike']}`\n"
-        return flow_msg
-    except: return ""
-
-def calculate_no_limit_levels(df, cp):
-    # ATR per Trailing Stop dinamico
-    tr = np.maximum(df['High'] - df['Low'], np.maximum(abs(df['High'] - df['Close'].shift(1)), abs(df['Low'] - df['Close'].shift(1))))
-    atr = tr.tail(14).mean()
-    trailing_stop = df['High'].tail(10).max() - (CONFIG['ATR_MULTIPLIER'] * atr)
-    # Target tecnici
-    highs = df['High'].tail(100)
-    R1 = highs[highs > cp].min() if not highs[highs > cp].empty else cp * 1.05
-    R2 = highs[highs > R1].min() if not highs[highs > R1].empty else R1 * 1.05
-    return R1, R2, trailing_stop
-
-def calculate_poc_price(df):
-    try:
-        price_bins = pd.cut(df['Close'], bins=20)
-        return float(df.groupby(price_bins, observed=True)['Volume'].sum().idxmax().mid)
-    except: return float(df['Close'].mean())
-
-# --- ANALISI FINALE ---
-
-def analyze_stock(ticker):
-    global alert_history
-    try:
-        session, now_ny = get_market_session()
-        df = yf.download(ticker, period="5d", interval="15m", progress=False)
-        if df.empty or len(df) < 50: return
-        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
-
-        cp = float(df['Close'].iloc[-1])
-        poc_price = calculate_poc_price(df)
-        R1, R2, t_stop = calculate_no_limit_levels(df, cp)
-        opt_flow = get_options_flow(ticker, cp)
-        
-        is_dp, dp_score, dp_type = detect_dark_pool_activity(df, cp)
-        is_iceberg, ice_score, ice_type = detect_iceberg_orders(df, cp)
-        
-        tipo = ""
-        is_warning = False
-
-        if session == 'REGULAR':
-            if "PUT SWEEP" in opt_flow: tipo = "📢 VENDITA / PROTEZIONE"; is_warning = True
-            elif is_iceberg and ice_score >= CONFIG['ICEBERG_SCORE_THRESHOLD']: tipo = f"🧊 ICEBERG: {ice_type}"
-            elif is_dp and dp_score >= CONFIG['DP_SCORE_REGULAR']: tipo = f"🕵️ DARK POOL: {dp_type}"
-            elif opt_flow: tipo = "🐋 INSTITUTIONAL FLOW"
-        
-        if tipo:
-            potenziale_gain = (R1 - cp) / cp
-            if potenziale_gain < CONFIG['MIN_PROFIT_THRESHOLD'] and not is_warning: return 
-
-            now = datetime.now()
-            if ticker in alert_history and (now - alert_history[ticker]) < timedelta(hours=CONFIG['COOLDOWN_HOURS']):
-                if not is_warning: return
-
-            prefix = "🚨" if is_warning else "🛰️"
-            msg = f"{prefix} *{tipo.upper()}*\n💎 **AZIONE**: `{ticker}`\n💰 **Prezzo**: `${cp:.2f}`\n"
-            msg += f"📍 **POC Support**: `${poc_price:.2f}`\n"
-            msg += f"━━━━━━━━━━━━━━━\n"
-            if opt_flow: msg += f"📊 **OPTIONS**:\n{opt_flow}━━━━━━━━━━━━━━━\n"
-            msg += f"🎯 **TARGET 1**: `{R1:.2f}`\n🚀 **TARGET 2**: `{R2:.2f}` (NO LIMIT)\n"
-            msg += f"🛡️ **TRAILING STOP**: `${t_stop:.2f}`\n"
-            msg += f"━━━━━━━━━━━━━━━\n"
-            msg += "⚠️ *ESTREMA CAUTELA*" if is_warning else "🔥 *LASCIA CORRERE IL PROFITTO*"
-
-            send_telegram(msg)
-            alert_history[ticker] = now
-            save_alert_history(alert_history)
-
-    except Exception as e: logging.error(f"Error {ticker}: {e}")
-
 def main():
-    global alert_history
-    alert_history = load_alert_history()
-    if not is_market_open(): return
-    all_tickers = sorted(list(set(MY_PORTFOLIO + WATCHLIST_200)))
-    for ticker in all_tickers:
-        analyze_stock(ticker)
-        time.sleep(CONFIG['SLEEP_BETWEEN_STOCKS'])
+    logging.info("🚀 Elite Scanner V3.1 Avviato...")
+    while True:
+        if is_market_open():
+            all_tickers = sorted(list(set(MY_PORTFOLIO + WATCHLIST_200)))
+            for ticker in all_tickers:
+                analyze_stock(ticker)
+                time.sleep(CONFIG['SLEEP_BETWEEN_STOCKS'])
+        else:
+            time.sleep(600)
 
 if __name__ == "__main__":
     main()
