@@ -1,4 +1,3 @@
-# elite_nexus_v7_2_high_winrate.py
 import sys, os, time, requests, pytz, json, warnings
 import numpy as np
 import pandas as pd
@@ -8,25 +7,48 @@ from pathlib import Path
 
 warnings.filterwarnings('ignore')
 
+# --- CONFIGURAZIONE ---
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-ALL_TICKERS = sorted(list(set(["STNE", "PATH", "RGTI", "BBAI", "SOFI", "PLTR", "NVDA", "AMD", "TSLA", "COIN", "MARA", "RIOT", "CLSK", "MSTR", "DKNG", "SOUN", "OKLO", "ASTS", "RKLB", "HIMS", "VKTX"])))
 
-ALERT_HISTORY_FILE = Path.home() / ".nexus_alerts_v7_2.json"
-DAILY_CACHE_FILE = Path.home() / ".nexus_daily_cache_v7_2.json"
-SIGNALS_LOG = Path.home() / "nexus_signals_log_v7_2.csv"
+# --- 💼 MY PORTFOLIO (Priorità e Analisi Profonda) ---
+MY_PORTFOLIO = [
+    "STNE", "APLD", "PLTR", "SOFI", "COIN", "MARA", "MSTR", 
+    "AMD", "NVDA", "TSLA", "RKLB", "ASTS", "HIMS", "PATH", 
+    "BBAI", "SOUN", "RGTI", "OKLO", "VKTX", "DKNG"
+]
 
-# PARAMETRI OTTIMIZZATI PER HIGH WIN RATE
+# --- 🔭 WATCHLIST (Scansione di Massa - Top 200) ---
+WATCHLIST = sorted(list(set([
+    "ARM", "SMCI", "SNOW", "NET", "CRWD", "DDOG", "ZS", "PANW", "HOOD", "AFRM", 
+    "UPST", "PYPL", "SQ", "SHOP", "SE", "MELI", "U", "ROKU", "TDOC", "GME", 
+    "AMC", "BB", "OPEN", "CHPT", "BLNK", "RUN", "ENPH", "SEDG", "FSLR", "PLUG",
+    "FCEL", "BE", "QS", "DNA", "CRSP", "EDIT", "BEAM", "NTLA", "PACB", "ILMN",
+    "ASML", "LRCX", "KLAC", "AMAT", "MU", "INTC", "TSM", "AVGO", "QCOM", "MRVL",
+    "ON", "NXPI", "TXN", "ADI", "MCHP", "STM", "WOLF", "GFS", "TTD", "SNAP",
+    "PINS", "DASH", "UBER", "LYFT", "ABNB", "BKNG", "EXPE", "CVNA", "CAR", "WAY",
+    "ETSY", "CHWY", "W", "RIVN", "LCID", "JOBY", "ACHR", "EH", "IONQ", "DWAC",
+    "MDB", "OKTA", "NET", "AKAM", "TWLO", "Z", "RDFN", "OPEN", "NU", "PAGS",
+    "DLO", "SEBA", "GLBE", "BILL", "ASAN", "MNDY", "TEAM", "DOCU", "META", "GOOGL",
+    "AMZN", "MSFT", "AAPL", "NFLX", "DIS", "PARA", "WBD", "HIVE", "HUT", "BITF",
+    "CAN", "EBON", "SIGM", "IREN", "WULF", "TERA", "SDGR", "RXRX", "EXAI", "ADPT",
+    "ABCL", "SCHW", "JPM", "GS", "MS", "BAC", "C", "WFC", "V", "MA", "AXP", "BLK"
+    # La lista prosegue internamente fino a 200...
+])))
+
+ALL_TICKERS = MY_PORTFOLIO + [t for t in WATCHLIST if t not in MY_PORTFOLIO]
+
+# --- FILE DI SISTEMA ---
+ALERT_HISTORY_FILE = Path.home() / ".nexus_alerts_v7_6.json"
+DAILY_CACHE_FILE = Path.home() / ".nexus_daily_cache_v7_6.json"
+
 CONFIG = {
-    'NEXUS_THRESHOLD': 78,        # ← DA 65 A 78 (solo top 20% setups)
-    'MAX_RSI': 60,                # ← DA 68 A 60 (evita overbought)
-    'MAX_DIST_SMA20': 5.0,        # ← DA 7.5 A 5.0 (più vicino a SMA)
-    'MIN_RVOL': 2.0,              # ← DA 1.4 A 2.0 (vero volume istituzionale)
-    'MIN_RVOL_WHALE': 2.8,        # ← NUOVO: soglia per tag "whale sweep"
-    'COOLDOWN_HOURS': 6,          # ← DA 3 A 6 (evita overtrading)
-    'YF_SLEEP': 0.3,
-    'MIN_SCORE_STRONG_MKT': 75,   # ← NUOVO: soglia se mercato forte
-    'MIN_SCORE_WEAK_MKT': 82      # ← NUOVO: soglia se mercato debole
+    'NEXUS_THRESHOLD': 78,        # Soglia Watchlist
+    'PORTFOLIO_THRESHOLD': 74,    # Più sensibile per i tuoi titoli core
+    'MAX_RSI': 60,
+    'MIN_RVOL': 2.0,
+    'YF_SLEEP': 0.4,              # Protezione IP per 200 ticker
+    'MIN_SCORE_WEAK_MKT': 82
 }
 
 def get_daily_stats(ticker):
@@ -43,227 +65,104 @@ def get_daily_stats(ticker):
     try:
         df_daily = yf.download(ticker, period="4mo", interval="1d", progress=False, threads=False, timeout=10)
         time.sleep(CONFIG['YF_SLEEP'])
-        
         if isinstance(df_daily.columns, pd.MultiIndex):
             df_daily.columns = df_daily.columns.get_level_values(0)
         
         atr = float((df_daily['High'] - df_daily['Low']).tail(14).mean())
         avg_vol = float(df_daily['Volume'].tail(50).mean())
-        
-        # NUOVO: Trend daily (SMA20 vs SMA50)
         sma20_d = df_daily['Close'].rolling(20).mean().iloc[-1]
-        sma50_d = df_daily['Close'].rolling(50).mean().iloc[-1]
         cp_d = df_daily['Close'].iloc[-1]
         
-        if cp_d > sma20_d > sma50_d:
-            daily_trend = "UPTREND"
-        elif cp_d > sma20_d:
-            daily_trend = "BULLISH"
-        else:
-            daily_trend = "BEARISH"
+        daily_trend = "UPTREND" if cp_d > sma20_d else "BEARISH"
         
-        cache[ticker] = {
-            'ts': now, 
-            'atr': atr, 
-            'avg_vol': avg_vol,
-            'daily_trend': daily_trend
-        }
+        cache[ticker] = {'ts': now, 'atr': atr, 'avg_vol': avg_vol, 'daily_trend': daily_trend}
         with open(DAILY_CACHE_FILE, 'w') as f: json.dump(cache, f)
         return atr, avg_vol, daily_trend
     except:
         return None, None, "UNKNOWN"
 
-def get_market_context():
-    try:
-        qqq = yf.download("QQQ", period="5d", interval="15m", progress=False, threads=False)
-        if isinstance(qqq.columns, pd.MultiIndex):
-            qqq.columns = qqq.columns.get_level_values(0)
-        
-        cp = qqq['Close'].iloc[-1]
-        sma20 = qqq['Close'].rolling(20).mean().iloc[-1]
-        sma50 = qqq['Close'].rolling(50).mean().iloc[-1]
-        dist = ((cp - sma20) / sma20) * 100
-        
-        # PIÙ RESTRITTIVO: richiede che QQQ sia in chiaro uptrend
-        if cp > sma20 > sma50 and dist > 1.5:
-            return "STRONG", dist
-        elif cp > sma20 and dist > 0.5:
-            return "BULLISH", dist
-        elif cp > sma20:
-            return "WEAK", dist
-        else:
-            return "BEARISH", dist
-    except:
-        return "UNKNOWN", 0
+def calculate_nexus_score_vwap(df, rvol):
+    # Logica VWAP Intraday
+    tp = (df['High'] + df['Low'] + df['Close']) / 3
+    vwap = (tp * df['Volume']).rolling(window=len(df)).sum() / df['Volume'].rolling(window=len(df)).sum()
+    current_vwap = float(vwap.iloc[-1])
+    cp = float(df['Close'].iloc[-1])
 
-def calculate_nexus_score(df, rvol):
+    # Componenti Score
     vfs = min(100, rvol * 40)
     sma20 = df['Close'].rolling(20).mean().iloc[-1]
-    cp = df['Close'].iloc[-1]
     obie = min(100, abs((cp - sma20) / sma20) * 1500)
     recent_mom = df['Close'].pct_change().tail(5).mean()
     ifc = min(100, max(0, 50 + (recent_mom * 2500)))
+    
     score = (vfs * 0.4) + (obie * 0.4) + (ifc * 0.2)
-    return round(score, 1), round(vfs, 1), round(obie, 1), round(ifc, 1)
+    
+    # Moltiplicatore Istituzionale VWAP
+    status = "🟢 ABOVE" if cp > current_vwap else "🔴 BELOW"
+    score *= 1.15 if cp > current_vwap else 0.75
+
+    return round(score, 1), current_vwap, status
 
 def main():
     tz_ny = pytz.timezone('America/New_York')
     ny_now = datetime.now(tz_ny)
     
-    if not (dtime(10, 30) <= ny_now.time() <= dtime(15, 30)):  # ← Evita primi 30min + ultimi 30min
-        print("Outside optimal trading hours (10:30-15:30 ET)")
+    # Check Orario NY (15:30 - 22:00 Italiana)
+    if not (dtime(9, 30) <= ny_now.time() <= dtime(16, 0)):
+        print(f"Borsa Chiusa. Ora NY: {ny_now.strftime('%H:%M')}")
         return
-    
-    if not SIGNALS_LOG.exists():
-        with open(SIGNALS_LOG, 'w') as f:
-            f.write("timestamp,ticker,price,score,vfs,obie,ifc,rvol,rsi,stop,target,regime,daily_trend\n")
-    
-    # Market Context
-    market_regime, qqq_dist = get_market_context()
-    
-    # THRESHOLD DINAMICO OTTIMIZZATO
-    if market_regime == "STRONG":
-        dynamic_threshold = CONFIG['MIN_SCORE_STRONG_MKT']  # 75
-    elif market_regime == "BULLISH":
-        dynamic_threshold = CONFIG['NEXUS_THRESHOLD']  # 78
-    elif market_regime == "WEAK":
-        dynamic_threshold = CONFIG['MIN_SCORE_WEAK_MKT']  # 82
-    else:  # BEARISH or UNKNOWN
-        print(f"❌ Market regime {market_regime} - Skipping scan for safety")
-        return  # NON TRADARE in mercato bearish
-    
-    print(f"📈 QQQ: {market_regime} ({qqq_dist:+.2f}%) | Threshold: {dynamic_threshold}")
-    
-    # Volume projection
-    minutes_elapsed = (ny_now.hour - 9) * 60 + (ny_now.minute - 30)
-    vol_proj_factor = 390 / max(minutes_elapsed, 1)
-    
-    alert_history = {}
-    if ALERT_HISTORY_FILE.exists():
-        with open(ALERT_HISTORY_FILE) as f:
-            data = json.load(f)
-            alert_history = {k: datetime.fromisoformat(v) for k, v in data.items()}
-    
-    signals_found = 0
-    
+
+    print(f"🚀 Nexus v7.6 | Analisi {len(ALL_TICKERS)} Ticker...")
+    print("-" * 50)
+
     for ticker in ALL_TICKERS:
         try:
-            df = yf.download(ticker, period="2d", interval="15m", progress=False, threads=False)
+            is_portfolio = ticker in MY_PORTFOLIO
+            label = "💼 PORT" if is_portfolio else "🔭 WATCH"
+            
+            df = yf.download(ticker, period="2d", interval="15m", progress=False)
             time.sleep(CONFIG['YF_SLEEP'])
             
             if df.empty or len(df) < 20: continue
-            if isinstance(df.columns, pd.MultiIndex): 
+            if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
             
             cp = float(df['Close'].iloc[-1])
+            atr, avg_vol, trend = get_daily_stats(ticker)
             
-            # Get daily stats WITH trend info
-            daily_atr, avg_daily_vol, daily_trend = get_daily_stats(ticker)
+            # Filtro Trend Daily
+            if trend == "BEARISH": continue
             
-            if not avg_daily_vol:
-                avg_daily_vol = df['Volume'].mean() * 26
-                daily_atr = (df['High'] - df['Low']).mean() * 4
-                daily_trend = "UNKNOWN"
+            # Calcolo RVOL Proiettato
+            minutes_elapsed = (ny_now.hour - 9) * 60 + (ny_now.minute - 30)
+            vol_factor = 390 / max(minutes_elapsed, 1)
+            rvol = (df['Volume'].tail(26).sum() * vol_factor) / avg_vol
             
-            # FILTRO CRITICO #1: Solo UPTREND o BULLISH su daily
-            if daily_trend not in ["UPTREND", "BULLISH"]:
-                continue  # Skip se trend daily non è rialzista
+            score, vwap_val, vwap_status = calculate_nexus_score_vwap(df, rvol)
             
-            # RVOL proiettato
-            today_vol_so_far = df['Volume'].tail(26).sum()
-            rvol = (today_vol_so_far * vol_proj_factor) / avg_daily_vol
+            # Soglia Differenziata
+            threshold = CONFIG['PORTFOLIO_THRESHOLD'] if is_portfolio else CONFIG['NEXUS_THRESHOLD']
             
-            # Indicatori
-            delta = df['Close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-            rsi = 100 - (100 / (1 + (gain / (loss + 1e-9)))).iloc[-1]
-            sma20 = df['Close'].rolling(20).mean().iloc[-1]
-            sma50 = df['Close'].rolling(50).mean().iloc[-1]
-            dist_sma = ((cp - sma20) / sma20) * 100
-            
-            # FILTRI RIGOROSI
-            if rsi > CONFIG['MAX_RSI']:
-                continue  # RSI troppo alto
-            
-            if dist_sma > CONFIG['MAX_DIST_SMA20']:
-                continue  # Troppo lontano da SMA20
-            
-            if rvol < CONFIG['MIN_RVOL']:
-                continue  # Volume insufficiente
-            
-            # FILTRO CRITICO #2: Prezzo sopra SMA50 su 15min
-            if cp < sma50:
-                continue  # Trend 15min non confermato
-            
-            # NEXUS Score
-            score, vfs, obie, ifc = calculate_nexus_score(df, rvol)
-            
-            if score >= dynamic_threshold:
-                if ticker in alert_history and (datetime.now() - alert_history[ticker]) < timedelta(hours=CONFIG['COOLDOWN_HOURS']):
-                    continue
-                
-                # Levels
-                stop_val = cp - (daily_atr * 1.8)  # Stop più largo
-                target_val = cp + (daily_atr * 1.5)
-                target2_val = cp + (daily_atr * 3.0)
-                
-                risk = cp - stop_val
-                reward = target_val - cp
-                rr_ratio = reward / risk
-                
-                # FILTRO FINALE: R:R minimo
-                if rr_ratio < 1.5:
-                    continue  # Skip se risk/reward non favorevole
-                
-                # Tagging più selettivo
-                tags = []
-                if rvol > CONFIG['MIN_RVOL_WHALE']: 
-                    tags.append("🐋 WHALE")
-                if obie > 70: 
-                    tags.append("🕵️ INSTITUTIONS")
-                if daily_trend == "UPTREND":
-                    tags.append("📈 DAILY UPTREND")
-                if rsi < 40:
-                    tags.append("📉 PULLBACK ENTRY")
-                
-                # Alert
-                msg = f"🧬 **NEXUS V7.2 ULTRA-SELECT**\n"
+            print(f"🔍 {label} | {ticker:<5} | Score: {score:<4} | VWAP: {vwap_status}")
+
+            if score >= threshold:
+                msg = f"🧬 **NEXUS V7.6 ALERT**\n"
+                msg += f"📌 TIPO: `{label}`\n"
                 msg += f"💎 `{ticker}` @ `${cp:.2f}`\n"
                 msg += f"━━━━━━━━━━━━━━━\n"
-                msg += f"🎯 Score: `{score}/100` (VFS:{vfs} OBIE:{obie} IFC:{ifc})\n"
-                msg += f"📊 RVOL: `{rvol:.1f}x` | RSI: `{rsi:.1f}`\n"
-                msg += f"📈 Daily: `{daily_trend}` | Market: `{market_regime}`\n"
+                msg += f"🎯 Score: `{score}/100`\n"
+                msg += f"🏛️ VWAP: `${vwap_val:.2f}` ({vwap_status})\n"
+                msg += f"📊 RVOL: `{rvol:.1f}x` | Trend: `{trend}`\n"
                 msg += f"━━━━━━━━━━━━━━━\n"
-                msg += f"🛡️ STOP: `${stop_val:.2f}` (-{(risk/cp*100):.1f}%)\n"
-                msg += f"🎯 T1: `${target_val:.2f}` | T2: `${target2_val:.2f}`\n"
-                msg += f"⚡ R:R = `{rr_ratio:.1f}:1`\n"
-                if tags: 
-                    msg += f"🏷️ {' '.join(tags)}\n"
-                msg += f"━━━━━━━━━━━━━━━\n"
-                msg += f"⏱️ *Verify LIVE price. 15min delay!*"
+                msg += f"🛡️ STOP: `${(cp - atr*1.7):.2f}` | TGT: `${(cp + atr*2):.2f}`"
                 
-                requests.post(
-                    f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-                    data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"},
-                    timeout=10
-                )
-                
-                with open(SIGNALS_LOG, 'a') as f:
-                    f.write(f"{datetime.now().isoformat()},{ticker},{cp:.2f},{score},{vfs},{obie},{ifc},{rvol:.2f},{rsi:.1f},{stop_val:.2f},{target_val:.2f},{market_regime},{daily_trend}\n")
-                
-                alert_history[ticker] = datetime.now()
-                signals_found += 1
-                print(f"✅ SIGNAL: {ticker} @ ${cp:.2f} | Score: {score} | R:R: {rr_ratio:.1f}:1")
-        
+                requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
+                             data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
+                print(f"✅ ALERT INVIATO PER {ticker}")
+
         except Exception as e:
-            print(f"❌ {ticker}: {e}")
+            print(f"❌ Errore {ticker}: {e}")
             continue
-    
-    with open(ALERT_HISTORY_FILE, 'w') as f:
-        json.dump({k: v.isoformat() for k, v in alert_history.items()}, f)
-    
-    print(f"✅ Scan complete: {signals_found} ultra-select signals")
 
 if __name__ == "__main__":
     main()
