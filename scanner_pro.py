@@ -1,4 +1,4 @@
-# elite_nexus_cron_final.py
+# elite_nexus_cron_final_v5.py
 import sys
 import os
 import time
@@ -44,55 +44,36 @@ ALL_TICKERS = sorted(list(set(MY_PORTFOLIO + WATCHLIST_200)))
 # --- PARAMETRI ---
 ALERT_HISTORY_FILE = Path.home() / ".nexus_alerts_cron.json"
 CONFIG = {
-    'COOLDOWN_HOURS': 3,         # FIX 2: Da 6h → 3h (più agile intraday)
-    'NEXUS_THRESHOLD': 65,        # FIX 1: Da 78 → 65 (più permissivo per test)
+    'COOLDOWN_HOURS': 3,
+    'NEXUS_THRESHOLD': 65,
     'MAX_RSI': 68,
     'MAX_DIST_SMA20': 7.5,
-    'MIN_RVOL': 1.4
+    'MIN_RVOL': 1.4,
+    'YF_SLEEP': 0.25  # CORREZIONE: Protezione contro ban IP Yahoo
 }
 
-# ============================================
-# MOTORE DI CALCOLO (NEXUS ENGINE)
-# ============================================
-
 def get_indicators(df):
-    # RSI
-    delta = df['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-    rs = gain / (loss + 1e-9)
-    rsi = 100 - (100 / (1 + rs))
-    
-    # SMA 20
-    sma20 = df['Close'].rolling(20).mean()
-    
-    # RVOL (Volume Relativo)
-    rvol = df['Volume'] / df['Volume'].rolling(50).mean()
-    
-    return rsi.iloc[-1], sma20.iloc[-1], rvol.iloc[-1]
+    try:
+        delta = df['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+        rs = gain / (loss + 1e-9)
+        rsi = 100 - (100 / (1 + rs))
+        sma20 = df['Close'].rolling(20).mean()
+        rvol = df['Volume'] / df['Volume'].rolling(50).mean()
+        return rsi.iloc[-1], sma20.iloc[-1], rvol.iloc[-1]
+    except: return 50, df['Close'].iloc[-1], 1.0
 
 def calculate_nexus_lite(df):
-    """NEXUS semplificato con calibrazione realistica"""
-    
-    # VFS: Volume momentum (peso 40%)
     vol_ma5 = df['Volume'].tail(5).mean()
     vol_ma50 = df['Volume'].mean()
     vfs = min(100, (vol_ma5 / vol_ma50) * 60)
-    
-    # OBIE: Divergenza prezzo (peso 40%)
     sma20 = df['Close'].rolling(20).mean().iloc[-1]
     obie = min(100, abs((df['Close'].iloc[-1] - sma20) / sma20) * 1500)
-    
-    # IFC: Momentum quality (peso 20%) - FIX 3: Più sfumato invece di binario
     recent_mom = df['Close'].pct_change().tail(5).mean()
     ifc = min(100, max(0, 50 + (recent_mom * 2500)))
-    
     score = (vfs * 0.4) + (obie * 0.4) + (ifc * 0.2)
     return round(score, 1), round(vfs, 1), round(obie, 1), round(ifc, 1)
-
-# ============================================
-# CORE SCANNER
-# ============================================
 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
@@ -100,36 +81,36 @@ def send_telegram(message):
     except: print("Telegram Error")
 
 def main():
-    # 1. GESTIONE ORARIO (NY TIME)
     tz_ny = pytz.timezone('America/New_York')
     now_ny = datetime.now(tz_ny).time()
     
-    # Filtro: Non operare prima delle 16:00 ITA (10:00 NY)
     if now_ny < dtime(10, 0) or now_ny > dtime(16, 0):
         print("Market Closed or Opening Noise. Exit.")
         return
 
-    # 2. CARICAMENTO CRON HISTORY
     alert_history = {}
     if ALERT_HISTORY_FILE.exists():
-        with open(ALERT_HISTORY_FILE) as f:
-            data = json.load(f)
-            alert_history = {k: datetime.fromisoformat(v) for k, v in data.items()}
+        try:
+            with open(ALERT_HISTORY_FILE) as f:
+                data = json.load(f)
+                alert_history = {k: datetime.fromisoformat(v) for k, v in data.items()}
+        except: alert_history = {}
 
-    # 3. CONTROLLO MERCATO GENERALE (QQQ)
     try:
-        qqq = yf.download("QQQ", period="2d", interval="15m", progress=False)
+        qqq = yf.download("QQQ", period="2d", interval="15m", progress=False, threads=False)
         if qqq['Close'].iloc[-1] < qqq['Close'].rolling(20).mean().iloc[-1]:
-            print("Mercato Debole (QQQ < SMA20). Exit per sicurezza.")
+            print("Mercato Debole (QQQ < SMA20).")
             return
     except: pass
 
-    # 4. SCANSIONE TICKER (SINGOLA PASSATA)
-    print(f"🚀 Nexus Cron Scan: {len(ALL_TICKERS)} tickers...")
+    print(f"🚀 Nexus Scan: {len(ALL_TICKERS)} tickers...")
     
     for ticker in ALL_TICKERS:
         try:
-            df = yf.download(ticker, period="5d", interval="15m", progress=False)
+            # CORREZIONE: threads=False e sleep per stabilità
+            df = yf.download(ticker, period="5d", interval="15m", progress=False, threads=False, timeout=10)
+            time.sleep(CONFIG['YF_SLEEP']) 
+            
             if df.empty or len(df) < 30: continue
             if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
 
@@ -137,22 +118,18 @@ def main():
             rsi, sma20, rvol = get_indicators(df)
             dist_sma = ((cp - sma20) / sma20) * 100
             
-            # FILTRI DI PROTEZIONE (SAFE ENTRY)
             if rsi > CONFIG['MAX_RSI'] or dist_sma > CONFIG['MAX_DIST_SMA20'] or rvol < CONFIG['MIN_RVOL']:
                 continue
 
-            # CALCOLO NEXUS
             score, vfs, obie, ifc = calculate_nexus_lite(df)
 
             if score >= CONFIG['NEXUS_THRESHOLD']:
-                # Controllo Cooldown (FIX 2: ora 3h invece di 6h)
                 if ticker in alert_history and (datetime.now() - alert_history[ticker]) < timedelta(hours=CONFIG['COOLDOWN_HOURS']):
                     continue
 
-                # Identificazione flussi (TAGS) - FIX 3: soglie calibrate
                 tags = []
                 if obie > 55: tags.append("🕵️ DARK POOL")
-                if rvol > 1.7: tags.append("🐋 WHALE SWEEP")
+                if rvol > 1.8: tags.append("🐋 WHALE SWEEP")
                 if rsi < 35: tags.append("📉 OVERSOLD")
                 
                 atr = (df['High'] - df['Low']).tail(14).mean()
@@ -164,15 +141,15 @@ def main():
                 if tags: msg += f"🏷️ {' '.join(tags)}\n"
                 msg += f"━━━━━━━━━━━━━━━\n"
                 msg += f"🛡️ STOP: `${cp - (atr*2):.2f}` | 🎯 T1: `${cp + (atr*1.5):.2f}`\n"
-                msg += f"⚠️ *Dati Yahoo (15m delay). Controlla prezzo LIVE!*"
+                msg += f"⚠️ *Delay 15m. Check LIVE!*"
 
                 send_telegram(msg)
                 alert_history[ticker] = datetime.now()
 
         except Exception as e:
+            print(f"Error {ticker}: {e}")
             continue
 
-    # SALVATAGGIO HISTORY
     with open(ALERT_HISTORY_FILE, 'w') as f:
         json.dump({k: v.isoformat() for k, v in alert_history.items()}, f)
 
