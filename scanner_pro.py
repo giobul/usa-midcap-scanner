@@ -44,11 +44,11 @@ ALL_TICKERS = sorted(list(set(MY_PORTFOLIO + WATCHLIST_200)))
 # --- PARAMETRI ---
 ALERT_HISTORY_FILE = Path.home() / ".nexus_alerts_cron.json"
 CONFIG = {
-    'COOLDOWN_HOURS': 6,
-    'NEXUS_THRESHOLD': 78,   # Leggermente più selettivo
-    'MAX_RSI': 68,           # Protezione anti-fregatura
-    'MAX_DIST_SMA20': 7.5,   # Protezione estensione
-    'MIN_RVOL': 1.4          # Conferma volume istituzionale
+    'COOLDOWN_HOURS': 3,         # FIX 2: Da 6h → 3h (più agile intraday)
+    'NEXUS_THRESHOLD': 65,        # FIX 1: Da 78 → 65 (più permissivo per test)
+    'MAX_RSI': 68,
+    'MAX_DIST_SMA20': 7.5,
+    'MIN_RVOL': 1.4
 }
 
 # ============================================
@@ -72,13 +72,23 @@ def get_indicators(df):
     return rsi.iloc[-1], sma20.iloc[-1], rvol.iloc[-1]
 
 def calculate_nexus_lite(df):
-    # Logica semplificata basata sulla tua V4
-    vfs = min(100, (df['Volume'].tail(5).mean() / df['Volume'].mean()) * 70)
-    obie = min(100, abs((df['Close'] - df['Close'].rolling(20).mean()) / df['Close'].rolling(20).mean()).iloc[-1] * 2000)
-    ifc = 90 if df['Close'].pct_change().iloc[-1] > 0 else 30
+    """NEXUS semplificato con calibrazione realistica"""
+    
+    # VFS: Volume momentum (peso 40%)
+    vol_ma5 = df['Volume'].tail(5).mean()
+    vol_ma50 = df['Volume'].mean()
+    vfs = min(100, (vol_ma5 / vol_ma50) * 60)
+    
+    # OBIE: Divergenza prezzo (peso 40%)
+    sma20 = df['Close'].rolling(20).mean().iloc[-1]
+    obie = min(100, abs((df['Close'].iloc[-1] - sma20) / sma20) * 1500)
+    
+    # IFC: Momentum quality (peso 20%) - FIX 3: Più sfumato invece di binario
+    recent_mom = df['Close'].pct_change().tail(5).mean()
+    ifc = min(100, max(0, 50 + (recent_mom * 2500)))
     
     score = (vfs * 0.4) + (obie * 0.4) + (ifc * 0.2)
-    return round(score, 1), vfs, obie, ifc
+    return round(score, 1), round(vfs, 1), round(obie, 1), round(ifc, 1)
 
 # ============================================
 # CORE SCANNER
@@ -135,25 +145,26 @@ def main():
             score, vfs, obie, ifc = calculate_nexus_lite(df)
 
             if score >= CONFIG['NEXUS_THRESHOLD']:
-                # Controllo Cooldown
+                # Controllo Cooldown (FIX 2: ora 3h invece di 6h)
                 if ticker in alert_history and (datetime.now() - alert_history[ticker]) < timedelta(hours=CONFIG['COOLDOWN_HOURS']):
                     continue
 
-                # Identificazione flussi (TAGS)
+                # Identificazione flussi (TAGS) - FIX 3: soglie calibrate
                 tags = []
-                if obie > 75: tags.append("🕵️ DARK POOL")
-                if rvol > 2.0: tags.append("🐋 WHALE SWEEP")
+                if obie > 55: tags.append("🕵️ DARK POOL")
+                if rvol > 1.7: tags.append("🐋 WHALE SWEEP")
+                if rsi < 35: tags.append("📉 OVERSOLD")
                 
                 atr = (df['High'] - df['Low']).tail(14).mean()
                 msg = f"🧬 **NEXUS HIGH CONVICTION**\n"
                 msg += f"💎 `{ticker}` | Price: `${cp:.2f}`\n"
                 msg += f"━━━━━━━━━━━━━━━\n"
-                msg += f"🎯 Score: `{score}/100` | RVOL: `{rvol:.1f}x`\n"
-                msg += f"📊 RSI: `{rsi:.1f}` | Dist.SMA: `{dist_sma:.1f}%` ✅\n"
-                if tags: msg += f"🔎 Tags: `{', '.join(tags)}` \n"
+                msg += f"🎯 Score: `{score}/100` (VFS:{vfs:.0f} OBIE:{obie:.0f} IFC:{ifc:.0f})\n"
+                msg += f"📊 RVOL: `{rvol:.1f}x` | RSI: `{rsi:.1f}` | SMA: `+{dist_sma:.1f}%`\n"
+                if tags: msg += f"🏷️ {' '.join(tags)}\n"
                 msg += f"━━━━━━━━━━━━━━━\n"
                 msg += f"🛡️ STOP: `${cp - (atr*2):.2f}` | 🎯 T1: `${cp + (atr*1.5):.2f}`\n"
-                msg += f"⚠️ *Dati Yahoo (15m delay). Controlla il prezzo LIVE!*"
+                msg += f"⚠️ *Dati Yahoo (15m delay). Controlla prezzo LIVE!*"
 
                 send_telegram(msg)
                 alert_history[ticker] = datetime.now()
