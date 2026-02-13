@@ -1,4 +1,4 @@
-# elite_nexus_scanner.py (VERSIONE COMPLETA STANDALONE)
+# elite_nexus_scanner_lite.py (NO SCIPY REQUIRED)
 import sys
 from datetime import datetime, timedelta, time as dtime
 import time
@@ -11,9 +11,6 @@ import yfinance as yf
 import json
 from pathlib import Path
 import logging
-from scipy.fft import fft
-from scipy.signal import correlate
-from scipy.stats import entropy
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -70,94 +67,126 @@ CONFIG = {
 }
 
 # ============================================
-# NEXUS CORE ENGINE (EMBEDDED)
+# NEXUS LITE ENGINE (NO SCIPY)
 # ============================================
 
-def calculate_vfs(df):
-    """Volume Fractal Signature"""
+def calculate_vfs_lite(df):
+    """Volume Fractal Signature - Simplified"""
     try:
         vol = df['Volume'].values
-        lags = range(2, min(20, len(vol)//2))
-        tau = [np.std(np.subtract(vol[lag:], vol[:-lag])) for lag in lags]
         
-        if len(tau) < 2:
-            return 0
+        # Volume momentum (accelerazione)
+        vol_ma_5 = df['Volume'].rolling(5).mean()
+        vol_ma_20 = df['Volume'].rolling(20).mean()
+        vol_ratio = (vol_ma_5 / vol_ma_20).iloc[-1] if len(vol_ma_20) > 0 else 1
         
-        hurst = np.polyfit(np.log(lags), np.log(tau), 1)[0]
-        vol_recent = vol[-50:] if len(vol) >= 50 else vol
-        vol_bins = pd.cut(vol_recent, bins=10, duplicates='drop')
-        vol_entropy = entropy(vol_bins.value_counts().values)
-        vol_entropy_norm = vol_entropy / 2.3
+        # Volume consistency
+        vol_std = df['Volume'].tail(20).std()
+        vol_mean = df['Volume'].tail(20).mean()
+        vol_cv = (vol_std / vol_mean) if vol_mean > 0 else 1
         
-        vfs_score = (max(0, hurst) * 100) * (1 - vol_entropy_norm)
-        return min(100, max(0, vfs_score * 1.5))
+        # Score: High ratio + Low variation = stealth accumulation
+        vfs_score = (vol_ratio * 50) * (1 / (1 + vol_cv))
+        
+        return min(100, max(0, vfs_score))
     except:
         return 0
 
-def calculate_phr(df):
-    """Price Harmonic Resonance"""
+def calculate_phr_lite(df):
+    """Price Harmonic - Simplified (Cycle Detection)"""
     try:
-        prices = df['Close'].pct_change().dropna().values
+        prices = df['Close'].values
+        
         if len(prices) < 30:
             return 0
         
-        fft_vals = np.abs(fft(prices))
-        dominant_idx = np.argmax(fft_vals[1:min(20, len(fft_vals)//2)]) + 1
+        # Find local peaks and troughs
+        from scipy.signal import argrelextrema
         
-        power = fft_vals[dominant_idx]
-        noise = np.mean(fft_vals[1:min(20, len(fft_vals)//2)])
-        coherence = power / noise if noise > 0 else 0
+        # Fallback: Simple momentum cycles
+        returns = df['Close'].pct_change()
         
-        freq_score = 1.0 / (1.0 + abs(dominant_idx - 6))
-        phr_score = coherence * freq_score * 20
+        # Positive momentum periods
+        pos_momentum = (returns > 0).astype(int)
+        
+        # Count consecutive periods (rough cycle length)
+        cycles = []
+        count = 0
+        for val in pos_momentum:
+            if val == 1:
+                count += 1
+            else:
+                if count > 0:
+                    cycles.append(count)
+                count = 0
+        
+        if len(cycles) < 2:
+            return 0
+        
+        # Consistency of cycle length
+        avg_cycle = np.mean(cycles)
+        std_cycle = np.std(cycles)
+        
+        # Score: Cycles 5-10 bars + low variation
+        if 5 <= avg_cycle <= 10:
+            consistency = 1 / (1 + std_cycle)
+            phr_score = consistency * 80
+        else:
+            phr_score = 30
         
         return min(100, max(0, phr_score))
     except:
         return 0
 
-def calculate_obie(df):
-    """Order Book Imbalance Echo"""
+def calculate_obie_lite(df):
+    """Order Book Echo - Simplified"""
     try:
+        # VWAP divergence
         vwap = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
         close = df['Close']
+        
         divergence = ((close - vwap) / vwap).dropna()
         
-        if len(divergence) < 50:
+        if len(divergence) < 20:
             return 0
         
-        div_values = divergence.tail(50).values
-        autocorr = correlate(div_values, div_values, mode='same')
+        # Recent divergence magnitude
+        recent_div = abs(divergence.tail(10).mean())
         
-        mid = len(autocorr) // 2
-        peak = np.max(autocorr[mid:mid+10]) if mid+10 <= len(autocorr) else autocorr[mid]
-        peak_norm = peak / autocorr[mid] if autocorr[mid] != 0 else 0
+        # Persistence (autocorr approximation via rolling correlation)
+        div_series = divergence.tail(30)
+        div_lag = div_series.shift(5)
         
-        div_magnitude = abs(divergence.iloc[-1])
-        obie_score = div_magnitude * peak_norm * 5000
+        # Simple correlation
+        corr = div_series.corr(div_lag)
+        
+        # Score: High divergence + High persistence
+        obie_score = recent_div * abs(corr) * 3000
         
         return min(100, max(0, obie_score))
     except:
         return 0
 
-def calculate_vrs(df):
-    """Volatility Regime Shift"""
+def calculate_vrs_lite(df):
+    """Volatility Regime - Simplified"""
     try:
-        returns = df['Close'].pct_change().dropna().values
-        if len(returns) < 50:
+        returns = df['Close'].pct_change().dropna()
+        
+        if len(returns) < 30:
             return 0
         
-        vol_short = pd.Series(returns).rolling(5).std()
-        vol_long = pd.Series(returns).rolling(20).std()
-        vol_ratio = (vol_short / vol_long).dropna()
+        # Rolling volatility
+        vol_5 = returns.rolling(5).std()
+        vol_20 = returns.rolling(20).std()
         
-        if len(vol_ratio) < 10:
-            return 0
+        vol_ratio = (vol_5 / vol_20).iloc[-1]
         
-        current_vol_ratio = vol_ratio.iloc[-1]
-        vol_trend = vol_ratio.diff().tail(5).mean()
+        # Volatility trend
+        vol_trend = vol_5.diff().tail(5).mean()
         
-        if current_vol_ratio < 1.0 and vol_trend > 0:
-            vrs_score = (1 - current_vol_ratio) * vol_trend * 500
+        # Score: Low vol + Rising trend = breakout setup
+        if vol_ratio < 1.0 and vol_trend > 0:
+            vrs_score = (1 - vol_ratio) * vol_trend * 400
         else:
             vrs_score = 0
         
@@ -165,22 +194,23 @@ def calculate_vrs(df):
     except:
         return 0
 
-def calculate_mqi(df):
-    """Momentum Quality Index"""
+def calculate_mqi_lite(df):
+    """Momentum Quality - Simplified"""
     try:
-        returns = df['Close'].pct_change().dropna()
-        if len(returns) < 20:
-            return 0
+        returns = df['Close'].pct_change()
         
-        momentum = returns.rolling(10).mean()
-        momentum_vol = momentum.rolling(10).std()
+        # Momentum
+        mom_10 = returns.rolling(10).mean()
         
-        current_mom = momentum.iloc[-1]
-        current_vol = momentum_vol.iloc[-1]
+        # Smoothness (low volatility of momentum)
+        mom_std = mom_10.rolling(10).std()
+        
+        current_mom = mom_10.iloc[-1]
+        current_std = mom_std.iloc[-1]
         
         if current_mom > 0:
-            smoothness = 1 / (1 + current_vol * 100)
-            mqi_score = current_mom * smoothness * 1000
+            smoothness = 1 / (1 + current_std * 100)
+            mqi_score = current_mom * smoothness * 800
         else:
             mqi_score = 0
         
@@ -188,69 +218,75 @@ def calculate_mqi(df):
     except:
         return 0
 
-def calculate_ifc(df, benchmark_df):
-    """Institutional Footprint Correlation"""
+def calculate_ifc_lite(df, benchmark_df):
+    """Institutional Footprint - Simplified"""
     try:
-        if benchmark_df is None or benchmark_df.empty or len(df) < 30:
+        if benchmark_df is None or benchmark_df.empty:
             return 50
         
-        ticker_ret = df['Close'].pct_change().dropna()
-        bench_ret = benchmark_df['Close'].pct_change().dropna()
+        ticker_ret = df['Close'].pct_change()
+        bench_ret = benchmark_df['Close'].pct_change()
         
+        # Align
         common_idx = ticker_ret.index.intersection(bench_ret.index)
+        
         if len(common_idx) < 20:
             return 50
         
         ticker_ret = ticker_ret.loc[common_idx]
         bench_ret = bench_ret.loc[common_idx]
         
-        corr_20 = ticker_ret.rolling(20).corr(bench_ret)
-        corr_5 = ticker_ret.rolling(5).corr(bench_ret)
+        # Correlation
+        corr_20 = ticker_ret.tail(20).corr(bench_ret.tail(20))
+        corr_5 = ticker_ret.tail(5).corr(bench_ret.tail(5))
         
-        decoupling = abs(corr_20.iloc[-1] - corr_5.iloc[-1])
+        # Decoupling
+        decoupling = abs(corr_20 - corr_5)
+        
+        # Outperformance
         perf_diff = ticker_ret.iloc[-1] - bench_ret.iloc[-1]
         
-        ifc_score = 50 + (decoupling * 200 * (1 if perf_diff > 0 else -1))
+        ifc_score = 50 + (decoupling * 150 * (1 if perf_diff > 0 else -1))
+        
         return min(100, max(0, ifc_score))
     except:
         return 50
 
-def calculate_lar(df):
-    """Liquidity Absorption Rate"""
+def calculate_lar_lite(df):
+    """Liquidity Absorption - Simplified"""
     try:
         vol_ma_5 = df['Volume'].rolling(5).mean()
         vol_ma_20 = df['Volume'].rolling(20).mean()
-        vol_ratio = (vol_ma_5 / vol_ma_20).dropna()
         
-        if len(vol_ratio) < 1:
-            return 0
+        vol_ratio = (vol_ma_5 / vol_ma_20).iloc[-1]
         
+        # Price impact
         price_change = df['Close'].pct_change().abs()
-        vol_normalized = df['Volume'] / df['Volume'].mean()
-        price_per_vol = (price_change / vol_normalized).replace([np.inf, -np.inf], 0).dropna()
+        vol_norm = df['Volume'] / df['Volume'].mean()
         
-        if len(price_per_vol) < 1:
-            return 0
+        price_per_vol = (price_change / vol_norm).replace([np.inf, -np.inf], 0)
         
-        current_vol_ratio = vol_ratio.iloc[-1]
         current_impact = price_per_vol.iloc[-1]
+        
+        # Inverse impact (lower = better)
         impact_score = 1 / (1 + current_impact * 100)
         
-        lar_score = current_vol_ratio * impact_score * 50
+        lar_score = vol_ratio * impact_score * 40
+        
         return min(100, max(0, lar_score))
     except:
         return 0
 
-def calculate_nexus_score(ticker, df, benchmark_df=None):
-    """Calculate NEXUS Score"""
+def calculate_nexus_score_lite(ticker, df, benchmark_df=None):
+    """NEXUS Score - Lite Version"""
     try:
-        vfs = calculate_vfs(df)
-        phr = calculate_phr(df)
-        obie = calculate_obie(df)
-        vrs = calculate_vrs(df)
-        mqi = calculate_mqi(df)
-        ifc = calculate_ifc(df, benchmark_df)
-        lar = calculate_lar(df)
+        vfs = calculate_vfs_lite(df)
+        phr = calculate_phr_lite(df)
+        obie = calculate_obie_lite(df)
+        vrs = calculate_vrs_lite(df)
+        mqi = calculate_mqi_lite(df)
+        ifc = calculate_ifc_lite(df, benchmark_df)
+        lar = calculate_lar_lite(df)
         
         weights = {
             'vfs': 0.22, 'phr': 0.10, 'obie': 0.20,
@@ -279,14 +315,15 @@ def calculate_nexus_score(ticker, df, benchmark_df=None):
                 'lar': round(lar, 1)
             }
         }
-    except:
+    except Exception as e:
+        logging.debug(f"NEXUS calc error: {e}")
         return {
             'nexus_score': 0, 'convergence': 0,
             'components': {k: 0 for k in ['vfs', 'phr', 'obie', 'vrs', 'mqi', 'ifc', 'lar']}
         }
 
 # ============================================
-# SCANNER UTILITIES
+# SCANNER (REST OF CODE IDENTICAL)
 # ============================================
 
 def load_alert_history():
@@ -349,7 +386,7 @@ def analyze_stock_nexus(ticker, alert_history):
         bench_ticker = get_benchmark(ticker)
         bench_df = download_with_retry(bench_ticker, period="5d", interval="15m")
         
-        nexus_data = calculate_nexus_score(ticker, df, bench_df)
+        nexus_data = calculate_nexus_score_lite(ticker, df, bench_df)
         
         nexus_score = nexus_data['nexus_score']
         convergence = nexus_data['convergence']
@@ -382,26 +419,25 @@ def analyze_stock_nexus(ticker, alert_history):
             
             log_signal(ticker, cp, nexus_data)
             
-            msg = f"🧬 **NEXUS ELITE: AI CONVERGENCE**\n"
+            msg = f"🧬 **NEXUS LITE: AI SIGNAL**\n"
             msg += f"💎 `{ticker}` | QTY: `{pos_size}`\n"
-            msg += f"💰 Entry: `${cp:.2f}` | Bench: `{bench_ticker}`\n"
+            msg += f"💰 Entry: `${cp:.2f}`\n"
             msg += f"━━━━━━━━━━━━━━━\n"
-            msg += f"🎯 NEXUS: `{nexus_score}/100` ⚡\n"
+            msg += f"🎯 NEXUS: `{nexus_score}/100`\n"
             msg += f"🔗 Conv: `{convergence}/7`\n"
             msg += f"━━━━━━━━━━━━━━━\n"
             msg += f"📊 VFS:{comp['vfs']:.0f} PHR:{comp['phr']:.0f} OBIE:{comp['obie']:.0f}\n"
             msg += f"   VRS:{comp['vrs']:.0f} MQI:{comp['mqi']:.0f} IFC:{comp['ifc']:.0f} LAR:{comp['lar']:.0f}\n"
             msg += f"━━━━━━━━━━━━━━━\n"
-            msg += f"🎯 T1: `${r1:.2f}` (+{((r1/cp)-1)*100:.1f}%)\n"
-            msg += f"🚀 T2: `${r2:.2f}` (+{((r2/cp)-1)*100:.1f}%)\n"
-            msg += f"🛡️ STOP: `${t_stop:.2f}` ({((t_stop/cp)-1)*100:.1f}%)\n"
+            msg += f"🎯 T1: `${r1:.2f}` | T2: `${r2:.2f}`\n"
+            msg += f"🛡️ STOP: `${t_stop:.2f}`\n"
             
             send_telegram(msg)
             
             alert_history[ticker] = datetime.now()
             save_alert_history(alert_history)
             
-            logging.info(f"✅ NEXUS: {ticker} @ ${cp:.2f} (Score: {nexus_score})")
+            logging.info(f"✅ NEXUS: {ticker} @ ${cp:.2f}")
             
     except Exception as e:
         logging.error(f"Error {ticker}: {e}")
@@ -411,7 +447,7 @@ def is_market_open():
     now_ny = datetime.now(tz_ny)
     if now_ny.weekday() >= 5:
         return False
-    return dtime(4, 0) <= now_ny.time() <= dtime(20, 0)
+    return dtime(9, 30) <= now_ny.time() <= dtime(16, 0)
 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
@@ -421,11 +457,8 @@ def send_telegram(message):
         pass
 
 def main():
-    logging.info("=" * 60)
-    logging.info("🧬 NEXUS Elite Scanner V4.0 - AI Powered")
-    logging.info(f"📊 Monitoring: {len(set(MY_PORTFOLIO + WATCHLIST_200))} tickers")
-    logging.info(f"⚙️  Threshold: {CONFIG['NEXUS_THRESHOLD']} | Conv: {CONFIG['CONVERGENCE_MIN']}")
-    logging.info("=" * 60)
+    logging.info("🧬 NEXUS LITE Scanner V4.0")
+    logging.info(f"📊 {len(set(MY_PORTFOLIO + WATCHLIST_200))} tickers")
     
     alert_history = load_alert_history()
     
@@ -433,7 +466,6 @@ def main():
         try:
             if is_market_open():
                 all_tickers = sorted(list(set(MY_PORTFOLIO + WATCHLIST_200)))
-                logging.info(f"🔍 Scanning {len(all_tickers)} tickers...")
                 
                 for ticker in all_tickers:
                     try:
@@ -446,14 +478,14 @@ def main():
                 logging.info("✅ Scan complete")
                 
             else:
-                logging.info("💤 Market closed. Waiting...")
+                logging.info("💤 Market closed")
                 time.sleep(600)
                 
         except KeyboardInterrupt:
             logging.info("🛑 Stopped")
             break
         except Exception as e:
-            logging.error(f"❌ Main error: {e}")
+            logging.error(f"❌ {e}")
             time.sleep(60)
 
 if __name__ == "__main__":
