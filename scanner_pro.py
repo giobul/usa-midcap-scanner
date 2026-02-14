@@ -27,12 +27,12 @@ ALL_TICKERS = MY_PORTFOLIO + [t for t in WATCHLIST if t not in MY_PORTFOLIO]
 CONFIG = {
     'NEXUS_THRESHOLD': 78,
     'PORTFOLIO_THRESHOLD': 74,
-    'YF_SLEEP': 0.3, # Ridotto per efficienza con backoff
+    'YF_SLEEP': 0.35,
     'COOLDOWN_HOURS': 4,
-    'MAX_THREADS': 5
+    'MAX_THREADS': 4
 }
 
-# --- DECORATORI E UTILITY ---
+# --- UTILS ---
 def retry_with_backoff(retries=3, delay=2):
     def decorator(func):
         @wraps(func)
@@ -52,12 +52,17 @@ def retry_with_backoff(retries=3, delay=2):
 @retry_with_backoff()
 def safe_download(ticker, period="2d", interval="15m"):
     time.sleep(CONFIG['YF_SLEEP'])
-    df = yf.download(ticker, period=period, interval=interval, progress=False, threads=False, timeout=10)
-    if df.empty: return None
+    df = yf.download(ticker, period=period, interval=interval, progress=False, threads=False, timeout=12)
+    if df is None or df.empty: return None
     if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
     return df
 
-# --- FUNZIONI CORE ---
+def calculate_true_atr(df):
+    high, low, close_prev = df['High'], df['Low'], df['Close'].shift(1)
+    tr = pd.concat([high - low, abs(high - close_prev), abs(low - close_prev)], axis=1).max(axis=1)
+    return float(tr.tail(14).mean())
+
+# --- CORE ENGINE ---
 def get_daily_stats_safe(ticker):
     with cache_lock:
         cache = {}
@@ -73,7 +78,8 @@ def get_daily_stats_safe(ticker):
     if df is None or len(df) < 20: return None, None, "UNKNOWN"
     
     cp, sma20 = float(df['Close'].iloc[-1]), df['Close'].rolling(20).mean().iloc[-1]
-    atr, vol = float((df['High'] - df['Low']).tail(14).mean()), float(df['Volume'].tail(50).mean())
+    atr = calculate_true_atr(df)
+    vol = float(df['Volume'].tail(50).mean())
     trend = "UPTREND" if cp > sma20 else "BEARISH"
     
     with cache_lock:
@@ -84,34 +90,30 @@ def get_daily_stats_safe(ticker):
         with open(DAILY_CACHE_FILE, 'w') as f: json.dump(cache, f)
     return atr, vol, trend
 
-def calculate_nexus_engine(df, rvol):
-    """Calcola lo Score con VWAP Ancorato alle 09:30 ET"""
-    # Conversione timezone per ancoraggio RTH
+def calculate_nexus_engine(df, rvol, atr_daily):
     df.index = df.index.tz_convert('America/New_York')
     df_today = df.between_time('09:30', '16:00').copy()
-    
     if df_today.empty or len(df_today) < 2: return 0, 0, "🔴 NO_RTH"
     
-    # VWAP Ancorato
     tp = (df_today['High'] + df_today['Low'] + df_today['Close']) / 3
     vwap_s = (tp * df_today['Volume']).cumsum() / df_today['Volume'].cumsum()
-    
     cur_vwap, cp = float(vwap_s.iloc[-1]), float(df_today['Close'].iloc[-1])
-    sma20 = df['Close'].rolling(20).mean().iloc[-1] 
     
-    # Engine Logic
     vfs = min(100, rvol * 40)
-    obie = min(100, abs((cp - sma20) / sma20) * 1500)
+    sma20 = df['Close'].rolling(20).mean().iloc[-1]
+    dist_sma20 = (cp - sma20) / sma20
+    obie = min(100, abs(dist_sma20) * 1500)
     ifc = min(100, max(0, 50 + (df_today['Close'].pct_change().tail(4).mean() * 3000)))
     
-    score = (vfs * 0.4) + (obie * 0.4) + (ifc * 0.2)
-    status = "🟢 ABOVE" if cp > cur_vwap else "🔴 BELOW"
-    score *= 1.15 if cp > cur_vwap else 0.75
+    # Anti-Extension Filter (Bidirectional)
+    extension_penalty = 0.75 if abs(cp - sma20) > (atr_daily * 2.5) else 1.0
     
-    return round(score, 1), cur_vwap, status
+    score = ((vfs * 0.4) + (obie * 0.4) + (ifc * 0.2)) * extension_penalty
+    score *= 1.15 if cp > cur_vwap else 0.75
+    return round(score, 1), cur_vwap, ("🟢 ABOVE" if cp > cur_vwap else "🔴 BELOW")
 
-# --- THREAD WORKER ---
-def process_ticker(ticker, alert_history, vol_factor):
+# --- WORKER ---
+def process_ticker(ticker, alert_history, ny_now):
     try:
         with alert_lock:
             if ticker in alert_history and (datetime.now() - alert_history[ticker]) < timedelta(hours=CONFIG['COOLDOWN_HOURS']):
@@ -123,13 +125,18 @@ def process_ticker(ticker, alert_history, vol_factor):
         df = safe_download(ticker)
         if df is None: return None
         
-        # Filtro RTH per Volume Relativo
-        df.index = df.index.tz_convert('America/New_York')
-        df_today = df.between_time('09:30', '16:00')
-        if df_today.empty: return None
+        elapsed_min = max((ny_now.hour - 9) * 60 + (ny_now.minute - 30), 15)
+        vol_factor = min(390 / elapsed_min, 8.0) 
+        
+        # Filtraggio RTH per Volume Relativo
+        df_copy = df.copy()
+        df_copy.index = df_copy.index.tz_convert('America/New_York')
+        df_today_data = df_copy.between_time('09:30', '16:00')
+        
+        if df_today_data.empty: return None
 
-        rvol = (df_today['Volume'].sum() * vol_factor) / avg_vol
-        score, vwap_val, vwap_status = calculate_nexus_engine(df, rvol)
+        rvol = (df_today_data['Volume'].sum() * vol_factor) / avg_vol
+        score, vwap_val, vwap_status = calculate_nexus_engine(df, rvol, atr)
         
         threshold = CONFIG['PORTFOLIO_THRESHOLD'] if ticker in MY_PORTFOLIO else CONFIG['NEXUS_THRESHOLD']
         if score >= threshold:
@@ -137,43 +144,33 @@ def process_ticker(ticker, alert_history, vol_factor):
                     'vwap_val': vwap_val, 'vwap_status': vwap_status, 'atr': atr, 'rvol': rvol}
         return None
     except Exception as e:
-        print(f"❌ Process {ticker}: {str(e)[:50]}")
+        print(f"❌ {ticker}: {str(e)[:40]}")
         return None
 
-# --- MAIN EXECUTION ---
+# --- EXEC ---
 def main():
     tz_ny = pytz.timezone('America/New_York')
     ny_now = datetime.now(tz_ny)
     if not (dtime(9, 30) <= ny_now.time() <= dtime(16, 0)):
-        print(f"🔒 Market Closed | NY: {ny_now.strftime('%H:%M')}"); return
+        print(f"🔒 Closed | NY: {ny_now.strftime('%H:%M')}"); return
 
     alert_history = {}
     if ALERT_COOLDOWN_FILE.exists():
         try:
             with open(ALERT_COOLDOWN_FILE, 'r') as f:
                 data = json.load(f)
-                cutoff = datetime.now() - timedelta(days=1)
-                alert_history = {k: datetime.fromisoformat(v) for k, v in data.items() if datetime.fromisoformat(v) > cutoff}
+                alert_history = {k: datetime.fromisoformat(v) for k, v in data.items() 
+                                 if datetime.fromisoformat(v) > (datetime.now() - timedelta(days=1))}
         except: pass
 
-    # Calcolo fattore volume pro-rata (RTH 390 min)
-    elapsed_min = max(((ny_now.hour - 9) * 60 + (ny_now.minute - 30)), 1)
-    vol_factor = 390 / elapsed_min
-
-    print(f"🚀 Nexus v7.9.2 Iron-Clad | Tickers: {len(ALL_TICKERS)} | VWAP: Anchored RTH")
-
     with ThreadPoolExecutor(max_workers=CONFIG['MAX_THREADS']) as executor:
-        futures = {executor.submit(process_ticker, t, alert_history, vol_factor): t for t in ALL_TICKERS}
+        futures = {executor.submit(process_ticker, t, alert_history, ny_now): t for t in ALL_TICKERS}
         for future in as_completed(futures):
             res = future.result()
             if res:
                 ticker, cp, atr, rvol, score = res['ticker'], res['cp'], res['atr'], res['rvol'], res['score']
                 label = "💼 PORTFOLIO" if ticker in MY_PORTFOLIO else "🔭 WATCHLIST"
-                
-                # Logic Flows
-                if rvol > 6.0 and score > 82: flow = "🔥 SWEEP (Aggressivo)"
-                elif rvol > 4.0 and score < 79: flow = "🧊 ICEBERG (Nascosto)"
-                else: flow = "🐋 ACCUMULAZIONE"
+                flow = "🔥 SWEEP" if rvol > 6.0 and score > 82 else "🧊 ICEBERG" if rvol > 4.0 and score < 79 else "🐋 ACCUM"
 
                 msg = f"🧬 **NEXUS V7.9.2**\n{label} | {flow}\n"
                 msg += f"💎 `{ticker}` @ `${cp:.2f}`\n━━━━━━━━━━━━\n"
@@ -187,7 +184,7 @@ def main():
                     alert_history[ticker] = datetime.now()
                     with open(ALERT_COOLDOWN_FILE, 'w') as f:
                         json.dump({k: v.isoformat() for k, v in alert_history.items()}, f)
-                print(f"✅ ALERT: {ticker} [{flow}] @ {score}")
+                print(f"✅ {ticker} [{flow}] @ {score}")
 
 if __name__ == "__main__":
     main()
