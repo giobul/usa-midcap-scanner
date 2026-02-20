@@ -39,7 +39,7 @@ EARNINGS_CACHE = os.path.join(BASE_DIR, ".earnings_cache.json")
 CONFIG = {
     "TOTAL_EQUITY": 100000,
     "RISK_PER_TRADE_PERCENT": 0.01,
-    "MAX_THREADS": 15,
+    "MAX_THREADS": 3,
     "MIN_VOLUME_USD": 1_000_000,
     "MAX_ALERTS": 5,
     "MIN_IFS_SCORE": 5,              # NEW: Raised from 4 to 5
@@ -362,6 +362,7 @@ def analyze_ticker(ticker, spy_df, already_alerted, earnings_cache):
         return None
     
     try:
+        time.sleep(0.5)
         df = yf.download(ticker, period="1y", interval="1d", progress=False)
         if df is None or len(df) < 60:
             return None
