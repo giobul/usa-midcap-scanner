@@ -39,7 +39,7 @@ EARNINGS_CACHE = os.path.join(BASE_DIR, ".earnings_cache.json")
 CONFIG = {
     "TOTAL_EQUITY": 100000,
     "RISK_PER_TRADE_PERCENT": 0.01,
-    "MAX_THREADS": 3,
+    "MAX_THREADS": 1,
     "MIN_VOLUME_USD": 1_000_000,
     "MAX_ALERTS": 5,
     "MIN_IFS_SCORE": 5,              # NEW: Raised from 4 to 5
@@ -587,7 +587,7 @@ def main():
             print(f"❌ Failed to send: {result['ticker']}")
         
         # Rate limiting
-        time.sleep(1)
+        time.sleep(2)
     
     # Save updated earnings cache
     save_earnings_cache(earnings_cache)
