@@ -486,9 +486,9 @@ def main():
     print("="*70)
     
     # Check market hours
-    if not is_market_gold_hour():
-        print("⏰ Outside Gold Hour (10:00-15:30 EST)")
-        return
+    #if not is_market_gold_hour():
+    #    print("⏰ Outside Gold Hour (10:00-15:30 EST)")
+    #    return
     
     # Check market regime
     bull_market, spy_df = get_market_regime()
