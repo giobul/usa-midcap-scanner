@@ -470,10 +470,10 @@ def main():
     print("🧬 NEXUS v14.4 — CLEAN RUN EDITION")
     print("=" * 70)
 
-    # TEST MODE — rimuovi i # per riattivare il blocco orario
-    if not is_market_gold_hour():
-    print("⏰ Outside Gold Hour (10:00–15:30 EST). Exiting.")
-    return
+    # Gold Hour gate — decommentare per attivare in produzione
+    if False:  # <- cambia in: if not is_market_gold_hour()
+        print("⏰ Outside Gold Hour (10:00–15:30 EST). Exiting.")
+        return
 
     is_bull, spy_df = get_market_regime()
     if not is_bull or spy_df is None:
