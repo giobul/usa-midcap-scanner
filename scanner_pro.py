@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-NEXUS v14.4 — CLEAN RUN EDITION
+NEXUS v14.5 — WHALE DETECTOR EDITION
 Fixes applied in v14.4:
-  ✅ Rimossi ticker delistati (PXD, HES, SQ→BLOCK)
-  ✅ Fix "cannot convert series to float" (squeeze su scalari)
-  ✅ Errori 404 earnings soppressi silenziosamente
-  ✅ Tutto il resto da v14.3 Definitive
+  ✅ [v14.5] RS Line: segnala solo se RS fa nuovo max insieme al breakout
+  ✅ [v14.5] Volume Dry-up: verifica silenzio volumi 3gg prima del breakout
+  ✅ [v14.5] ADX >= 25: filtra breakout in mercati laterali
+  ✅ [v14.5] IFS ora 10 punti (3 nuovi componenti aggiunti)
+  ✅ Tutto il resto da v14.4
 """
 
 import yfinance as yf
@@ -56,7 +57,9 @@ CONFIG = {
     "MAX_THREADS":             4,
     "MIN_VOLUME_USD":          1_000_000,
     "MAX_ALERTS":              5,
-    "MIN_IFS_SCORE":           5,
+    "MIN_IFS_SCORE":           5,        # ora su scala 10 con i 3 nuovi filtri
+    "MIN_ADX":                 25,       # ADX minimo (semaforo trend)
+    "VOLUME_DRYUP_RATIO":      0.5,      # volume dry-up: giorni precedenti < 50% media
     "MAX_PER_SECTOR":          2,
     "EARNINGS_LOOKBACK_DAYS":  1,
     "EARNINGS_LOOKAHEAD_DAYS": 1,
@@ -325,33 +328,108 @@ def get_market_regime():
     return bool(is_bull and slope), spy
 
 # ==============================
-# 🧠 INSTITUTIONAL FLOW SCORE (7-point)
+# 🧠 HELPER: ADX Calculator
 # ==============================
-def institutional_score(df: pd.DataFrame, rs_val: float) -> int:
+def calc_adx(df: pd.DataFrame, period: int = 14) -> float:
+    """Calcola ADX (Average Directional Index) — misura forza del trend"""
+    try:
+        high  = df["High"]
+        low   = df["Low"]
+        close = df["Close"]
+
+        # True Range
+        tr = pd.concat([
+            high - low,
+            (high - close.shift()).abs(),
+            (low  - close.shift()).abs(),
+        ], axis=1).max(axis=1)
+
+        # Directional Movement
+        dm_plus  = (high - high.shift()).clip(lower=0)
+        dm_minus = (low.shift() - low).clip(lower=0)
+        # Se DM+ < DM- o DM- < DM+, zero l'altro
+        dm_plus  = dm_plus.where(dm_plus > dm_minus, 0)
+        dm_minus = dm_minus.where(dm_minus > dm_plus, 0)
+
+        # Smoothed (Wilder)
+        atr_s    = tr.ewm(alpha=1/period, adjust=False).mean()
+        di_plus  = 100 * dm_plus.ewm(alpha=1/period, adjust=False).mean() / atr_s
+        di_minus = 100 * dm_minus.ewm(alpha=1/period, adjust=False).mean() / atr_s
+
+        dx = (100 * (di_plus - di_minus).abs() / (di_plus + di_minus).replace(0, np.nan))
+        adx = dx.ewm(alpha=1/period, adjust=False).mean()
+        return float(adx.iloc[-1])
+    except Exception:
+        return 0.0
+
+# ==============================
+# 🧠 INSTITUTIONAL FLOW SCORE (10-point)
+# ==============================
+def institutional_score(df: pd.DataFrame, rs_val: float, spy_df: pd.DataFrame) -> tuple:
     """
-    +2  Volume accumulation  (3/5 days above 20-day avg)
-    +2  Range compression    (VCP: 5-day range < 20-day range)
-    +2  Relative strength    (outperforming SPY over 63 days)
-    +1  Bullish close        (top 25% of day range)
+    Score 0-10 con 6 componenti:
+      +2  Volume accumulation   (3/5 giorni sopra media 20gg)
+      +2  Range compression VCP (range 5gg < range 20gg)
+      +2  Relative strength     (sovraperformance SPY 63gg)
+      +1  Bullish close         (chiusura top 25% range giornaliero)
+      +2  RS Line new high      (RS line fa nuovo max con il breakout)
+      +1  Volume dry-up         (3gg prima del breakout: volumi < 50% media)
+
+    ADX viene restituito separatamente come filtro hard (non nel score).
     """
     if len(df) < 30:
-        return 0
+        return 0, 0.0
+
     score = 0
+
+    # 1. Volume accumulation
     avg20 = df["Volume"].rolling(20).mean()
     if (df["Volume"].iloc[-5:] > avg20.iloc[-5:]).sum() >= 3:
         score += 2
+
+    # 2. VCP range compression
     hl  = df["High"] - df["Low"]
     r5  = float(hl.rolling(5).mean().iloc[-1])
     r20 = float(hl.rolling(20).mean().iloc[-1])
     if pd.notna(r5) and pd.notna(r20) and r20 > 0 and r5 < r20:
         score += 2
+
+    # 3. Relative strength vs SPY (63gg)
     if rs_val > 0:
         score += 2
+
+    # 4. Bullish close structure
     day_range = float(df["High"].iloc[-1]) - float(df["Low"].iloc[-1])
     if day_range > 0:
-        if (float(df["Close"].iloc[-1]) - float(df["Low"].iloc[-1])) / day_range > 0.75:
+        close_pos = (float(df["Close"].iloc[-1]) - float(df["Low"].iloc[-1])) / day_range
+        if close_pos > 0.75:
             score += 1
-    return score
+
+    # 5. RS Line new high (nuovo massimo a 20 giorni della forza relativa)
+    try:
+        # RS Line = Close ticker / Close SPY (allineati per data)
+        aligned = df["Close"].align(spy_df["Close"], join="inner")
+        rs_line = aligned[0] / aligned[1]
+        if len(rs_line) >= 21:
+            rs_max20 = rs_line.iloc[-21:-1].max()   # max dei 20gg precedenti
+            if float(rs_line.iloc[-1]) > float(rs_max20):
+                score += 2
+    except Exception:
+        pass
+
+    # 6. Volume dry-up: 3 giorni prima volumi < 50% della media 20gg
+    try:
+        avg20_val = float(avg20.iloc[-4])            # media al giorno -4
+        dry_days  = (df["Volume"].iloc[-4:-1] < avg20.iloc[-4:-1] * 0.50).sum()
+        if dry_days >= 2:                            # almeno 2 dei 3gg pre-breakout
+            score += 1
+    except Exception:
+        pass
+
+    # ADX calcolato separatamente
+    adx = calc_adx(df)
+
+    return score, adx
 
 # ==============================
 # 🔎 ANALYZE TICKER
@@ -396,7 +474,13 @@ def analyze_ticker(ticker: str, spy_df: pd.DataFrame,
             return None
 
         if price > resistance and vol_ratio > 1.2:
-            ifs = institutional_score(df, rs_val)
+            ifs, adx = institutional_score(df, rs_val, spy_df)
+
+            # Filtro ADX >= 25 (semaforo intensità trend)
+            if adx < 25:
+                print(f"   📉 {ticker} — ADX {adx:.1f} < 25, trend debole skip", flush=True)
+                return None
+
             if ifs < CONFIG["MIN_IFS_SCORE"]:
                 return None
 
@@ -429,13 +513,14 @@ def analyze_ticker(ticker: str, spy_df: pd.DataFrame,
                 "sl":        round(stop_loss, 2),
                 "rs":        round(rs_val * 100, 1),
                 "size":      size,
-                "prob":      min(50 + ifs * 6, 90),
+                "prob":      min(50 + ifs * 5, 92),  # scala su 10 punti
                 "sector":    SECTOR_MAP.get(ticker, "Other"),
                 "r1":        round(resistance, 2),
                 "r2":        round(price + atr * 2, 2),
                 "vol_ratio": round(vol_ratio, 2),
+                "adx":       round(adx, 1),
             }
-            print(f"   🚨 SEGNALE TROVATO: {ticker} | IFS {ifs}/7 | ${round(price,2)} | {label}", flush=True)
+            print(f"   🚨 SEGNALE: {ticker} | IFS {ifs}/10 | ADX {adx:.1f} | ${round(price,2)} | {label}", flush=True)
             return result
 
     except Exception as e:
@@ -467,7 +552,7 @@ def send_telegram(message: str) -> bool:
 # ==============================
 def main():
     print("=" * 70)
-    print("🧬 NEXUS v14.4 — CLEAN RUN EDITION")
+    print("🧬 NEXUS v14.5 — WHALE DETECTOR EDITION")
     print("=" * 70)
 
     # Gold Hour gate — decommentare per attivare in produzione
@@ -498,6 +583,7 @@ def main():
     print(f"🔍 Scanning {len(MY_WATCHLIST)} tickers ({CONFIG['MAX_THREADS']} threads)…")
     results = []
 
+    import sys; sys.stdout.flush()  # forza output prima del scan
     with ThreadPoolExecutor(max_workers=CONFIG["MAX_THREADS"]) as executor:
         futures = {
             executor.submit(analyze_ticker, t, spy_df, already_alerted, earnings_cache): t
@@ -540,7 +626,7 @@ def main():
             f"🔭 *INSTITUTIONAL FLOW: {r['ticker']}*\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"🏭 *SECTOR:* {r['sector']}\n"
-            f"📊 *FLOW:* {r['label']} | IFS: `{r['ifs']}/7`\n"
+            f"📊 *FLOW:* {r['label']} | IFS: `{r['ifs']}/10` | ADX: `{r['adx']}`\n"
             f"✅ *BREAKOUT:* above `${r['r1']}`\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"💰 Price: `${r['price']}` | 📈 RS vs SPY: `{r['rs']}%`\n"
@@ -555,7 +641,7 @@ def main():
 
         sent = send_telegram(msg)
         status = "✅ Telegram" if sent else "🖨️  Console"
-        print(f"{status}: {r['ticker']} | IFS {r['ifs']}/7 | {r['sector']}")
+        print(f"{status}: {r['ticker']} | IFS {r['ifs']}/10 | ADX {r['adx']} | {r['sector']}")
         print(msg)
         print()
 
