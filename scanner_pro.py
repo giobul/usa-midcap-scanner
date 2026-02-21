@@ -283,18 +283,46 @@ def check_earnings_risk(ticker: str, cache: dict) -> bool:
 # ==============================
 # 📊 MARKET REGIME
 # ==============================
+def _fetch_spy_stooq() -> pd.DataFrame:
+    """Fallback: scarica SPY da stooq.com (nessun rate limit su GitHub Actions)"""
+    try:
+        url = "https://stooq.com/q/d/l/?s=spy.us&i=d"
+        df  = pd.read_csv(url, parse_dates=["Date"], index_col="Date")
+        df  = df.sort_index()
+        # Rinomina colonne per compatibilità
+        df.columns = [c.capitalize() for c in df.columns]
+        if "Close" not in df.columns:
+            return None
+        # Aggiungi Volume fittizio se assente (stooq non lo include sempre)
+        if "Volume" not in df.columns:
+            df["Volume"] = 0
+        return df.tail(300)   # ultimi 300 giorni bastano per SMA50
+    except Exception as e:
+        print(f"⚠️  Stooq fallback error: {e}")
+        return None
+
 def get_market_regime():
+    """Prova yfinance, poi stooq come fallback anti-rate-limit."""
     spy = yf_download_with_retry("SPY", period="1y", interval="1d")
+
     if spy is None:
-        print("⚠️  SPY unavailable after retries.")
+        print("⚠️  yfinance rate-limited — provo stooq fallback...")
+        spy = _fetch_spy_stooq()
+
+    if spy is None:
+        print("❌ SPY non disponibile da nessuna fonte.")
         return False, None
+
     if isinstance(spy.columns, pd.MultiIndex):
         spy.columns = spy.columns.get_level_values(0)
     if len(spy) < 60:
         return False, None
+
     spy["SMA50"] = spy["Close"].rolling(50).mean()
     is_bull = float(spy["Close"].iloc[-1]) > float(spy["SMA50"].iloc[-1])
-    return is_bull, spy
+    slope   = float(spy["SMA50"].iloc[-1]) > float(spy["SMA50"].iloc[-5])
+    print(f"📡 SPY: ${float(spy['Close'].iloc[-1]):.2f} | SMA50: ${float(spy['SMA50'].iloc[-1]):.2f} | {'🟢 BULL' if is_bull else '🔴 BEAR'}")
+    return bool(is_bull and slope), spy
 
 # ==============================
 # 🧠 INSTITUTIONAL FLOW SCORE (7-point)
