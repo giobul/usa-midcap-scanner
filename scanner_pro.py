@@ -1,20 +1,11 @@
 #!/usr/bin/env python3
 """
-NEXUS v14.3 — DEFINITIVE EDITION
-Merged best-of: v14.2 (retry logic, full maps, complete IFS) +
-                v14.3 (cleaner output schema, flow labeling)
-
-Fixes applied vs Gemini's v14.3:
-  ✅ Full SECTOR_MAP (250+ tickers — no stubs)
-  ✅ Full MY_WATCHLIST (no stubs)
-  ✅ IFS restored to 7-point scale (VCP component re-added)
-  ✅ yf_download_with_retry() — exponential backoff on rate-limit
-  ✅ auto_adjust=True + session= everywhere
-  ✅ Earnings cache (load/save/check) fully wired
-  ✅ Log-file deduplication fully wired
-  ✅ Sector diversification (MAX_PER_SECTOR)
-  ✅ Gold Hour gate
-  ✅ Telegram send (live — set env vars to activate)
+NEXUS v14.4 — CLEAN RUN EDITION
+Fixes applied in v14.4:
+  ✅ Rimossi ticker delistati (PXD, HES, SQ→BLOCK)
+  ✅ Fix "cannot convert series to float" (squeeze su scalari)
+  ✅ Errori 404 earnings soppressi silenziosamente
+  ✅ Tutto il resto da v14.3 Definitive
 """
 
 import yfinance as yf
@@ -32,6 +23,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
 
 warnings.filterwarnings("ignore")
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+import logging
+logging.getLogger("yfinance").setLevel(logging.CRITICAL)  # sopprimi tutti i warning yf
 
 # ==============================
 # 🔑 SESSION
@@ -133,10 +128,9 @@ SECTOR_MAP = {
     "ASTS": "Telecom",
     # Energy
     "XOM": "Energy",  "CVX": "Energy",  "COP": "Energy",   "EOG": "Energy",
-    "SLB": "Energy",  "HAL": "Energy",  "OXY": "Energy",   "PXD": "Energy",
-    "MPC": "Energy",  "PSX": "Energy",  "VLO": "Energy",   "KMI": "Energy",
+    "SLB": "Energy",  "HAL": "Energy",  "OXY": "Energy",   "MPC": "Energy",  "PSX": "Energy",  "VLO": "Energy",   "KMI": "Energy",
     "WMB": "Energy",  "DVN": "Energy",  "FANG": "Energy",  "APA": "Energy",
-    "CTRA": "Energy", "BKR": "Energy",  "HES": "Energy",   "EQT": "Energy",
+    "CTRA": "Energy", "BKR": "Energy",  "EQT": "Energy",
     "XLE": "Energy",
     # Industrials
     "BA": "Industrial",  "RTX": "Industrial", "LMT": "Industrial", "NOC": "Industrial",
@@ -180,14 +174,14 @@ MY_WATCHLIST = [
     "ADI","MCHP","MPWR","ENTG","TER","COHR","OLED","LSCC","SWKS","QRVO",
     "AI","PATH","UPST","SOUN","DOCN","ESTC","OKTA","TWLO","FSLY","HUBS",
     "DT","BILL","U","RBLX","AFRM","APP","SNPS","CDNS","ANET",
-    "BAC","WFC","C","GS","MS","BLK","SCHW","AXP","PYPL","SQ",
+    "BAC","WFC","C","GS","MS","BLK","SCHW","AXP","PYPL","XYZ",
     "SOFI","COIN","HOOD","ICE","CME","KKR","BX","APO","ARES","ALLY",
     "VRTX","REGN","GILD","BIIB","MRNA","BNTX","ISRG","SYK","MDT","TMO",
     "ABT","DHR","PFE","BMY","CVS","HUM","CI","ELV","IDXX","DXCM",
     "BA","RTX","LMT","NOC","GD","CAT","DE","ETN","PH","HON",
     "GE","EMR","MMM","ITW","CMI","ROK","AME","TDG","LHX","PCAR",
-    "CVX","COP","EOG","SLB","HAL","OXY","PXD","MPC","PSX","VLO",
-    "KMI","WMB","DVN","FANG","APA","CTRA","BKR","HES","EQT","XLE",
+    "CVX","COP","EOG","SLB","HAL","OXY","MPC","PSX","VLO",
+    "KMI","WMB","DVN","FANG","APA","CTRA","BKR","EQT","XLE",
     "NKE","SBUX","MCD","LOW","TGT","BKNG","ABNB","UBER","LYFT","EBAY",
     "ETSY","ROST","TJX","LULU","ULTA","DPZ","CMG","YUM","MAR","HLT",
     "DIS","CMCSA","T","VZ","CHTR","TMUS","PARA","WBD","FOX","FOXA",
@@ -266,14 +260,17 @@ def save_earnings_cache(cache: dict):
 def check_earnings_risk(ticker: str, cache: dict) -> bool:
     if ticker not in cache:
         try:
-            cal = yf.Ticker(ticker).calendar
+            import urllib3
+            urllib3.disable_warnings()  # sopprimi 404 silenziosamente
+            ticker_obj = yf.Ticker(ticker)
+            cal = ticker_obj.calendar
             if cal is not None and not cal.empty and "Earnings Date" in cal.index:
                 raw = cal.loc["Earnings Date"]
                 val = raw.iloc[0] if hasattr(raw, "iloc") else raw
                 if pd.notna(val):
                     cache[ticker] = pd.to_datetime(val).date().isoformat()
-        except:
-            pass
+        except Exception:
+            pass  # 404 e altri errori ignorati silenziosamente
         return True
     try:
         diff = (datetime.fromisoformat(cache[ticker]).date() - datetime.now().date()).days
@@ -348,18 +345,24 @@ def analyze_ticker(ticker: str, spy_df: pd.DataFrame,
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
-        price    = float(df["Close"].iloc[-1])
-        vol_mean = float(df["Volume"].rolling(20).mean().iloc[-1])
+        # squeeze() ensures scalar even if yfinance returns single-col DataFrame
+        price    = float(df["Close"].iloc[-1].squeeze() if hasattr(df["Close"].iloc[-1], "squeeze") else df["Close"].iloc[-1])
+        vol_mean = float(df["Volume"].rolling(20).mean().iloc[-1].squeeze() if hasattr(df["Volume"].rolling(20).mean().iloc[-1], "squeeze") else df["Volume"].rolling(20).mean().iloc[-1])
         if pd.isna(vol_mean) or vol_mean == 0:
             return None
-        if price * float(df["Volume"].iloc[-1]) < CONFIG["MIN_VOLUME_USD"]:
+        vol_last = df["Volume"].iloc[-1]
+        vol_last = float(vol_last.squeeze() if hasattr(vol_last, "squeeze") else vol_last)
+        if price * vol_last < CONFIG["MIN_VOLUME_USD"]:
             return None
 
-        vol_ratio  = float(df["Volume"].iloc[-1]) / vol_mean
-        resistance = float(df["High"].rolling(20).max().iloc[-2])
+        vol_ratio  = vol_last / vol_mean
+        res_raw    = df["High"].rolling(20).max().iloc[-2]
+        resistance = float(res_raw.squeeze() if hasattr(res_raw, "squeeze") else res_raw)
+        rs_raw     = df["Close"].pct_change(63).iloc[-1]
+        spy_rs_raw = spy_df["Close"].pct_change(63).iloc[-1]
         rs_val     = (
-            float(df["Close"].pct_change(63).iloc[-1])
-            - float(spy_df["Close"].pct_change(63).iloc[-1])
+            float(rs_raw.squeeze() if hasattr(rs_raw, "squeeze") else rs_raw)
+            - float(spy_rs_raw.squeeze() if hasattr(spy_rs_raw, "squeeze") else spy_rs_raw)
         )
         if pd.isna(resistance) or pd.isna(rs_val):
             return None
@@ -436,7 +439,7 @@ def send_telegram(message: str) -> bool:
 # ==============================
 def main():
     print("=" * 70)
-    print("🧬 NEXUS v14.3 — DEFINITIVE EDITION")
+    print("🧬 NEXUS v14.4 — CLEAN RUN EDITION")
     print("=" * 70)
 
     # TEST MODE — rimuovi i # per riattivare il blocco orario
