@@ -556,7 +556,7 @@ def main():
     print("=" * 70)
 
     # Gold Hour gate — decommentare per attivare in produzione
-    if not is_market_gold_hour()
+    if not is_market_gold_hour():
         print("⏰ Outside Gold Hour (10:00–15:30 EST). Exiting.")
         return
 
