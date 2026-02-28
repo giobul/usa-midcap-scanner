@@ -56,9 +56,9 @@ CONFIG = {
     "RISK_PER_TRADE_PERCENT":  0.01,
     "MAX_THREADS":             4,
     "MIN_VOLUME_USD":          1_000_000,
-    "MAX_ALERTS":              5,
+    "MAX_ALERTS":              7,
     "MIN_IFS_SCORE":           5,        # ora su scala 10 con i 3 nuovi filtri
-    "MIN_ADX":                 25,       # ADX minimo (semaforo trend)
+    "MIN_ADX":                 22,       # ADX minimo (semaforo trend)
     "VOLUME_DRYUP_RATIO":      0.5,      # volume dry-up: giorni precedenti < 50% media
     "MAX_PER_SECTOR":          2,
     "EARNINGS_LOOKBACK_DAYS":  1,
@@ -473,7 +473,7 @@ def analyze_ticker(ticker: str, spy_df: pd.DataFrame,
         if pd.isna(resistance) or pd.isna(rs_val):
             return None
 
-        if price > resistance and vol_ratio > 1.2:
+        if price > resistance and vol_ratio > 1.5:
             ifs, adx = institutional_score(df, rs_val, spy_df)
 
             # Filtro ADX >= 25 (semaforo intensità trend)
