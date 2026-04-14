@@ -1,71 +1,58 @@
 import pandas as pd
 import requests
 import os
-import io
 import time
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # 🔑 CONFIG
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "TUO_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "TUA_CHAT_ID")
 
-# Test limitato a titoli ad alta volatilità per confermare il funzionamento
-TICKERS = ["NVDA", "TSLA", "AAPL", "AMD", "PLTR", "MSTR", "MARA", "COIN", "SMCI", "META"]
+# Tickers core per test immediato
+TICKERS = ["NVDA", "TSLA", "AAPL", "AMD", "PLTR", "MSTR", "MSFT", "META", "GOOGL", "AMZN"]
 
-def get_stooq_data_direct(ticker):
-    """Scarica il CSV direttamente da Stooq senza intermediari"""
-    url = f"https://stooq.com/q/d/l/?s={ticker}.us&i=d"
-    headers = {'User-Agent': 'Mozilla/5.0'}
+def get_price_google(ticker):
+    """Recupera il prezzo tramite il mirror di Google Finance"""
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=5d"
+    headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
     try:
-        response = requests.get(url, headers=headers, timeout=15)
-        if response.status_code == 200:
-            df = pd.read_csv(io.StringIO(response.text))
-            if len(df) > 30:
-                return df
-        return None
+        response = requests.get(url, headers=headers, timeout=10)
+        data = response.json()
+        price = data['chart']['result'][0]['meta']['regularMarketPrice']
+        prev_close = data['chart']['result'][0]['meta']['previousClose']
+        return price, prev_close
     except:
-        return None
-
-def analyze(ticker, df):
-    try:
-        # Calcoli veloci
-        last_price = float(df['Close'].iloc[-1])
-        prev_price = float(df['Close'].iloc[-2])
-        low_5 = float(df['Low'].rolling(5).min().iloc[-1])
-        
-        # LOGICA: Rimbalzo tecnico (prezzo odierno > prezzo ieri e sopra minimo 5gg)
-        if last_price > prev_price and last_price > low_5:
-            return {
-                "ticker": ticker,
-                "price": round(last_price, 2),
-                "change": round(((last_price - prev_price) / prev_price) * 100, 2)
-            }
-    except: return None
+        return None, None
 
 def main():
-    print(f"🧬 NEXUS v17.4 — DIRECT STREAM | {datetime.now().strftime('%H:%M')}")
-    print(f"📡 Test su {len(TICKERS)} core leaders...")
+    print(f"🧬 NEXUS v18.0 — GOOGLE SHIELD | {datetime.now().strftime('%H:%M')}")
+    print(f"📡 Scansione di emergenza su {len(TICKERS)} titoli...")
     
-    results = []
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {executor.submit(get_stooq_data_direct, t): t for t in TICKERS}
-        for future in as_completed(futures):
-            ticker = futures[future]
-            df = future.result()
-            if df is not None:
-                res = analyze(ticker, df)
-                if res:
-                    results.append(res)
-                    print(f"✅ Segnale trovato: {ticker}")
-            time.sleep(1) # Cortesia per il server
+    found = 0
+    for ticker in TICKERS:
+        print(f"🔍 Controllo {ticker}...", end="\r")
+        price, prev_close = get_price_google(ticker)
+        
+        if price and prev_close:
+            # Calcoliamo se il titolo è in rialzo (Aggressivo)
+            change = ((price - prev_close) / prev_close) * 100
+            
+            # Se il titolo sta salendo, mandiamo l'alert
+            if change > 0:
+                found += 1
+                msg = (f"🚀 *SHIELD ALERT: {ticker}*\n"
+                       f"💰 Prezzo: `${price}`\n"
+                       f"📈 Var: `+{round(change, 2)}%`\n"
+                       f"🛠️ Stato: *Accumulazione*")
+                
+                requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
+                              data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"})
+                print(f"✅ Inviato: {ticker} ({round(change, 2)}%)")
+        
+        time.sleep(1.5) # Ritardo per sicurezza
 
-    for r in results:
-        msg = f"🚀 *RECOVERY ALERT: {r['ticker']}*\n💰 Prezzo: `${r['price']}`\n📈 Var: `+{r['change']}%`"
-        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
-                      data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"})
-
-    print(f"🏁 Scansione terminata. Trovati {len(results)} segnali.")
+    print(f"\n🏁 Fine. Inviati {found} alert.")
 
 if __name__ == "__main__":
     main()
+    
