@@ -29,23 +29,20 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID_HERE")
 
 BASE_DIR       = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE       = os.path.join(BASE_DIR, "nexus_trade_log.csv")
-EARNINGS_CACHE = os.path.join(BASE_DIR, ".earnings_cache.json")
 
 CONFIG = {
     "TOTAL_EQUITY":            100_000,
     "RISK_PER_TRADE_PERCENT":  0.01,
     "MAX_THREADS":             4,
     "MIN_VOLUME_USD":          1_000_000,
-    "MAX_ALERTS":              7,
-    "MIN_IFS_SCORE":           5,
-    "MIN_ADX":                 25,
-    "MAX_PER_SECTOR":          2,
+    "MAX_ALERTS":              10,
+    "MIN_ADX":                 20,
+    "MAX_PER_SECTOR":          3,
     "YF_RETRIES":              3,
-    "YF_RETRY_DELAY":          10,
 }
 
 # ==============================
-# 📋 SECTOR MAP COMPLETA (Tutte le tue azioni)
+# 📋 SECTOR MAP COMPLETA
 # ==============================
 SECTOR_MAP = {
     "AAPL": "Tech", "MSFT": "Tech", "GOOGL": "Tech", "META": "Tech", "AMZN": "Ecommerce", "TSLA": "EV",
@@ -95,7 +92,7 @@ SECTOR_MAP = {
 MY_WATCHLIST = list(SECTOR_MAP.keys())
 
 # ==============================
-# 🛠️ UTILITIES & FALLBACKS
+# 🛠️ UTILITIES
 # ==============================
 def _fetch_spy_stooq():
     try:
@@ -115,18 +112,25 @@ def get_market_regime():
     spy = None
     try:
         spy = yf.download("SPY", period="1y", session=session, progress=False, auto_adjust=True)
-        if spy is None or spy.empty: raise Exception("YF Rate Limited")
+        if spy is None or spy.empty: raise Exception("YF Limited")
     except:
         spy = _fetch_spy_stooq()
     
-    if spy is None or len(spy) < 50: return False, None
+    if spy is None or len(spy) < 50: return False, None, 5
 
     spy["SMA50"] = spy["Close"].rolling(50).mean()
     curr_close = float(spy["Close"].iloc[-1])
     sma50 = float(spy["SMA50"].iloc[-1])
+    
     is_bull = curr_close > sma50
-    print(f"📡 SPY: ${curr_close:.2f} | SMA50: ${sma50:.2f} | {'🟢 BULL' if is_bull else '🔴 BEAR'}")
-    return bool(is_bull), spy
+    # Logica Filtro Dinamico
+    distanza = (curr_close / sma50) - 1
+    min_ifs = 4 if distanza > 0.02 else 5
+    
+    status = "🟢 BULL (Aggressivo)" if min_ifs == 4 else "🟡 BULL (Cautelativo)"
+    print(f"📡 SPY: ${curr_close:.2f} | SMA50: ${sma50:.2f} | Status: {status}")
+    
+    return bool(is_bull), spy, min_ifs
 
 # ==============================
 # 🧠 INDICATORI & ANALISI
@@ -137,11 +141,12 @@ def institutional_score(df, spy_df):
     if (df["Volume"].iloc[-3:] > vol_avg.iloc[-3:]).any(): score += 2
     rs_line = df["Close"] / spy_df["Close"].reindex(df.index, method='ffill')
     if rs_line.iloc[-1] > rs_line.iloc[-20:].mean(): score += 3
+    # Contrazione volatilità (meno rigida se il mercato spinge)
     hl = (df["High"] - df["Low"]).rolling(5).mean()
-    if hl.iloc[-1] < hl.iloc[-20:].mean(): score += 2
+    if hl.iloc[-1] < hl.iloc[-20:].mean() * 1.1: score += 2
     return score
 
-def analyze_ticker(ticker, spy_df):
+def analyze_ticker(ticker, spy_df, min_ifs_threshold):
     try:
         df = yf.download(ticker, period="1y", session=session, progress=False, auto_adjust=True)
         if df is None or len(df) < 50: return None
@@ -150,9 +155,9 @@ def analyze_ticker(ticker, spy_df):
         res_20 = float(df["High"].rolling(20).max().iloc[-2])
         vol_ratio = float(df["Volume"].iloc[-1] / df["Volume"].rolling(20).mean().iloc[-1])
         
-        if price > res_20 and vol_ratio > 1.2:
+        if price > res_20 and vol_ratio > 1.1:
             ifs = institutional_score(df, spy_df)
-            if ifs < CONFIG["MIN_IFS_SCORE"]: return None
+            if ifs < min_ifs_threshold: return None
             
             atr = float((df["High"] - df["Low"]).rolling(14).mean().iloc[-1])
             sl = round(price - (atr * 1.5), 2)
@@ -172,18 +177,18 @@ def analyze_ticker(ticker, spy_df):
 # ==============================
 def main():
     print("=" * 70)
-    print("🧬 NEXUS v14.7 — WHALE DETECTOR EDITION")
+    print("🧬 NEXUS v14.8 — WHALE DETECTOR DYNAMIC")
     print("=" * 70)
 
-    is_bull, spy_df = get_market_regime()
+    is_bull, spy_df, min_ifs = get_market_regime()
     if not is_bull:
-        print("🛑 Regime Bearish. Scansione interrotta.")
+        print("🛑 Regime Bearish. Operatività sospesa.")
         return
 
-    print(f"🔍 Scansione di {len(MY_WATCHLIST)} ticker in corso...")
+    print(f"🔍 Scansione di {len(MY_WATCHLIST)} ticker | Soglia IFS: {min_ifs}")
     results = []
     with ThreadPoolExecutor(max_workers=CONFIG["MAX_THREADS"]) as executor:
-        futures = [executor.submit(analyze_ticker, t, spy_df) for t in MY_WATCHLIST]
+        futures = [executor.submit(analyze_ticker, t, spy_df, min_ifs) for t in MY_WATCHLIST]
         for f in as_completed(futures):
             res = f.result()
             if res: results.append(res)
@@ -200,17 +205,15 @@ def main():
 
     for r in selected:
         msg = (
-            f"🔭 *INSTITUTIONAL FLOW: {r['ticker']}*\n"
+            f"🔭 *FLOW ALERT: {r['ticker']}*\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"🏭 *SETTORE:* {r['sector']}\n"
-            f"📊 *IFS SCORE:* `{r['ifs']}/10` | Vol Ratio: `{r['vol_ratio']}`\n"
-            f"✅ *BREAKOUT:* sopra `${r['res']}`\n"
+            f"🏭 *SECTOR:* {r['sector']}\n"
+            f"📊 *IFS:* `{r['ifs']}/10` | Vol: `{r['vol_ratio']}`\n"
+            f"✅ *ENTRY:* sopra `${r['res']}`\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"💰 Prezzo: `${r['price']}`\n"
-            f"💎 *STRUMENTO:* AZIONI / CALL OPTIONS\n"
-            f"🎯 *Call Strike (+5%):* `${r['strike']}`\n"
-            f"🚀 Target: `${r['tg']}` | 🛑 Stop: `${r['sl']}`\n"
-            f"🛡️ Size: `{r['size']} sh`\n"
+            f"🎯 *TARGET:* `${r['tg']}`\n"
+            f"🛑 *STOP:* `${r['sl']}`\n"
+            f"💎 *STRIKE:* `${r['strike']}`\n"
             f"━━━━━━━━━━━━━━━━━━"
         )
         print(msg)
@@ -219,10 +222,9 @@ def main():
                           data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, 
                           timeout=10)
         except: pass
-        time.sleep(1)
 
     print("=" * 70)
-    print(f"🏁 Fine — {len(selected)} segnali elaborati.")
+    print(f"🏁 Fine — {len(selected)} alert generati.")
 
 if __name__ == "__main__":
     main()
