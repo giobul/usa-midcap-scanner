@@ -1,73 +1,71 @@
-import subprocess
-import sys
-
-def install(package):
-    try: subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-    except: pass
-
-for p in ['pandas', 'pandas-datareader', 'numpy', 'requests']:
-    try: __import__(p.replace('-', '_'))
-    except ImportError: install(p)
-
 import pandas as pd
-import pandas_datareader.data as web
-import numpy as np
 import requests
-import warnings
 import os
+import io
+import time
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-warnings.filterwarnings("ignore")
+# 🔑 CONFIG
+TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "TUO_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "TUA_CHAT_ID")
 
-TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "YOUR_TOKEN_HERE")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID_HERE")
+# Test limitato a titoli ad alta volatilità per confermare il funzionamento
+TICKERS = ["NVDA", "TSLA", "AAPL", "AMD", "PLTR", "MSTR", "MARA", "COIN", "SMCI", "META"]
 
-def analyze_ticker(ticker):
+def get_stooq_data_direct(ticker):
+    """Scarica il CSV direttamente da Stooq senza intermediari"""
+    url = f"https://stooq.com/q/d/l/?s={ticker}.us&i=d"
+    headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        symbol = f"{ticker}.US"
-        df = web.DataReader(symbol, 'stooq')
-        if df is None or df.empty or len(df) < 30: return None
-        df = df.sort_index()
-        
-        price = float(df["Close"].iloc[-1])
-        low_10 = float(df["Low"].rolling(10).min().iloc[-1])
-        ma_20 = float(df["Close"].rolling(20).mean().iloc[-1])
-        
-        # 🎯 LOGICA RECOVERY: Prezzo sopra il minimo di 10gg e vicino/sopra la media 20
-        # Questo intercetta chi sta ripartendo dopo un calo
-        if price > low_10:
-            score = 2
-            if price > ma_20: score += 4  # Forza extra se sopra media
-            if df["Close"].iloc[-1] > df["Close"].iloc[-2]: score += 4 # Momentum positivo
-            
-            atr = float((df["High"] - df["Low"]).rolling(14).mean().iloc[-1])
-            sl = round(price - (atr * 1.5), 2)
-            tg = round(price + (atr * 3.0), 2)
+        response = requests.get(url, headers=headers, timeout=15)
+        if response.status_code == 200:
+            df = pd.read_csv(io.StringIO(response.text))
+            if len(df) > 30:
+                return df
+        return None
+    except:
+        return None
 
+def analyze(ticker, df):
+    try:
+        # Calcoli veloci
+        last_price = float(df['Close'].iloc[-1])
+        prev_price = float(df['Close'].iloc[-2])
+        low_5 = float(df['Low'].rolling(5).min().iloc[-1])
+        
+        # LOGICA: Rimbalzo tecnico (prezzo odierno > prezzo ieri e sopra minimo 5gg)
+        if last_price > prev_price and last_price > low_5:
             return {
-                "ticker": ticker, "price": round(price, 2), "ifs": score,
-                "tg": tg, "sl": sl, "type": "RECOVERY" if price < ma_20 else "STRENGTH"
+                "ticker": ticker,
+                "price": round(last_price, 2),
+                "change": round(((last_price - prev_price) / prev_price) * 100, 2)
             }
     except: return None
 
 def main():
-    print(f"🧬 NEXUS v17.3 — BOTTOM HUNTER | {datetime.now().strftime('%H:%M')}")
-    results = []
-    tickers = ["AAPL", "MSFT", "NVDA", "AMD", "TSLA", "PLTR", "AMZN", "META", "GOOGL", "NFLX", "COIN", "MSTR", "SMCI"] # Test su core
-    # Se vuoi testare tutti i 242, riaggiungi la SECTOR_MAP qui
+    print(f"🧬 NEXUS v17.4 — DIRECT STREAM | {datetime.now().strftime('%H:%M')}")
+    print(f"📡 Test su {len(TICKERS)} core leaders...")
     
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = {executor.submit(analyze_ticker, t): t for t in tickers}
+    results = []
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {executor.submit(get_stooq_data_direct, t): t for t in TICKERS}
         for future in as_completed(futures):
-            res = future.result()
-            if res: results.append(res)
+            ticker = futures[future]
+            df = future.result()
+            if df is not None:
+                res = analyze(ticker, df)
+                if res:
+                    results.append(res)
+                    print(f"✅ Segnale trovato: {ticker}")
+            time.sleep(1) # Cortesia per il server
 
-    results.sort(key=lambda x: x["ifs"], reverse=True)
-    for r in results[:10]:
-        msg = f"🟢 *SIGNAL: {r['ticker']}* ({r['type']})\n💰 PRICE: `${r['price']}` | IFS: `{r['ifs']}`\n🎯 TG: `${r['tg']}` | 🛑 SL: `${r['sl']}`"
-        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"})
-        print(f"Inviato alert per {r['ticker']}")
+    for r in results:
+        msg = f"🚀 *RECOVERY ALERT: {r['ticker']}*\n💰 Prezzo: `${r['price']}`\n📈 Var: `+{r['change']}%`"
+        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
+                      data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"})
+
+    print(f"🏁 Scansione terminata. Trovati {len(results)} segnali.")
 
 if __name__ == "__main__":
     main()
