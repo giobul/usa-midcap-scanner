@@ -7,20 +7,14 @@ import sys
 def install(package):
     try:
         subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-    except Exception as e:
-        print(f"⚠️ Errore installazione {package}: {e}")
+    except: pass
 
-# Verifica e installa le librerie necessarie prima di caricare il resto
-packages = ['pandas', 'pandas-datareader', 'numpy', 'requests']
-for p in packages:
-    try:
-        __import__(p.replace('-', '_'))
-    except ImportError:
-        print(f"🛠️ Installazione di {p} in corso...")
-        install(p)
+for p in ['pandas', 'pandas-datareader', 'numpy', 'requests']:
+    try: __import__(p.replace('-', '_'))
+    except ImportError: install(p)
 
 # ==============================================================
-# 🚀 NEXUS v17.1 — STOOQ SENTINEL FULL
+# 🚀 NEXUS v17.2 — AGGRESSIVE RAIDER
 # ==============================================================
 import pandas as pd
 import pandas_datareader.data as web
@@ -29,24 +23,22 @@ import requests
 import warnings
 import time
 import os
-import random
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 warnings.filterwarnings("ignore")
 
-# 🔑 CONFIGURAZIONE (Sostituisci o usa Environment Variables)
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "YOUR_TOKEN_HERE")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID_HERE")
 
 CONFIG = {
     "TOTAL_EQUITY":            100_000,
-    "RISK_PER_TRADE_PERCENT":  0.01,
-    "MAX_THREADS":             5,  # Bilanciamento perfetto per Stooq
-    "MAX_ALERTS":              10,
+    "RISK_PER_TRADE_PERCENT":  0.012, # Rischio leggermente alzato
+    "MAX_THREADS":             5,
+    "MAX_ALERTS":              15, # Più alert disponibili
 }
 
-# 📋 WATCHLIST INTEGRALE (242 Tickers)
+# SECTOR_MAP Integrale (242 Tickers) - Mantenuta per coerenza
 SECTOR_MAP = {
     "AAPL": "Tech", "MSFT": "Tech", "GOOGL": "Tech", "META": "Tech", "AMZN": "Ecommerce", "TSLA": "EV",
     "NFLX": "Media", "BRK-B": "Finance", "NVDA": "Semis", "AMD": "Semis", "INTC": "Semis", "QCOM": "Semis",
@@ -98,7 +90,7 @@ def analyze_ticker(ticker):
     try:
         symbol = f"{ticker}.US"
         df = web.DataReader(symbol, 'stooq')
-        if df is None or df.empty or len(df) < 40: return None
+        if df is None or df.empty or len(df) < 35: return None
         
         df = df.sort_index()
         price = float(df["Close"].iloc[-1])
@@ -106,19 +98,17 @@ def analyze_ticker(ticker):
         vol_avg = df["Volume"].rolling(20).mean().iloc[-1]
         vol_ratio = float(df["Volume"].iloc[-1] / vol_avg)
 
-        # Logica Breakout Quantitativa
-        if price > res_20 and vol_ratio > 1.05:
-            score = 0
-            if (df["Volume"].iloc[-3:] > vol_avg * 1.3).any(): score += 5
-            hl_range = (df["High"] - df["Low"]).iloc[-1]
-            hl_avg = (df["High"] - df["Low"]).rolling(20).mean().iloc[-1]
-            if hl_range < hl_avg * 1.2: score += 5
+        # 🚀 AGGRESSIVE FILTER: Prezzo > 99% della resistenza, Volume > 0.90
+        if price > (res_20 * 0.99) and vol_ratio > 0.90:
+            score = 3 # Base score
+            if price > res_20: score += 2
+            if vol_ratio > 1.2: score += 3
+            if (df["Close"].iloc[-1] > df["Open"].iloc[-1]): score += 2
             
-            if score < 5: return None
-
+            # Parametri Trade
             atr = float((df["High"] - df["Low"]).rolling(14).mean().iloc[-1])
-            sl = round(price - (atr * 1.6), 2)
-            tg = round(price + (price - sl) * 2.5, 2)
+            sl = round(price - (atr * 1.4), 2)
+            tg = round(price + (price - sl) * 2.2, 2)
             size = int((CONFIG["TOTAL_EQUITY"] * CONFIG["RISK_PER_TRADE_PERCENT"]) / (price - sl))
 
             return {
@@ -126,35 +116,27 @@ def analyze_ticker(ticker):
                 "sector": SECTOR_MAP.get(ticker, "Other"), "strike": round(price * 1.05, 2),
                 "tg": tg, "sl": sl, "res": round(res_20, 2), "size": size
             }
-    except:
-        return None
+    except: return None
 
 def main():
     print("=" * 75)
-    print(f"🧬 NEXUS v17.1 — STOOQ SENTINEL | {datetime.now().strftime('%H:%M')}")
+    print(f"🧬 NEXUS v17.2 — AGGRESSIVE RAIDER | {datetime.now().strftime('%H:%M')}")
     print("=" * 75)
     
     results = []
-    processed = 0
-    
     with ThreadPoolExecutor(max_workers=CONFIG["MAX_THREADS"]) as executor:
         futures = {executor.submit(analyze_ticker, t): t for t in TICKERS}
-        for future in as_completed(futures):
-            processed += 1
+        for i, future in enumerate(as_completed(futures)):
             res = future.result()
-            if res:
-                results.append(res)
-                print(f"🔥 [{processed}/{len(TICKERS)}] {res['ticker']} (IFS: {res['ifs']})")
-            if processed % 20 == 0:
-                print(f"🔄 Progresso: {processed}/{len(TICKERS)}...")
+            if res: results.append(res)
+            if i % 30 == 0: print(f"📡 Scansione: {i}/{len(TICKERS)}...")
 
     results.sort(key=lambda x: x["ifs"], reverse=True)
     
-    print("\n" + "=" * 75)
     for r in results[:CONFIG["MAX_ALERTS"]]:
-        msg = (f"🔭 *STOOQ FLOW: {r['ticker']}*\n"
+        msg = (f"🚩 *RAIDER ALERT: {r['ticker']}*\n"
                f"🏭 *SEC:* {r['sector']} | 📊 *IFS:* `{r['ifs']}/10`\n"
-               f"✅ *ENTRY:* > `${r['res']}` | 💰 *PRICE:* `${r['price']}`\n"
+               f"✅ *NEAR RES:* `${r['res']}` | 💰 *PRICE:* `${r['price']}`\n"
                f"🎯 *TG:* `${r['tg']}` | 🛑 *SL:* `${r['sl']}`\n"
                f"🛡️ *SIZE:* `{r['size']} sh`\n━━━━━━━━━━━━━━━━━━")
         print(msg)
@@ -163,7 +145,7 @@ def main():
                           data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=5)
         except: pass
 
-    print(f"🏁 Fine Scansione. Trovate {len(results)} opportunità.")
+    print(f"🏁 Fine. Trovate {len(results)} potenziali opportunità.")
 
 if __name__ == "__main__":
     main()
