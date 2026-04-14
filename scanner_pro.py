@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 🧬 NEXUS v14.5 — WHALE DETECTOR EDITION
-Full implementation with Stooq Resiliency & Multi-Index Fixes.
+Fixed SyntaxError: Closed parentheses in final print loop.
 """
 
 import yfinance as yf
@@ -56,7 +56,7 @@ CONFIG = {
 }
 
 # ==============================
-# 📋 SECTOR MAP (Full)
+# 📋 SECTOR MAP
 # ==============================
 SECTOR_MAP = {
     "AAPL": "Tech", "MSFT": "Tech", "GOOGL": "Tech", "META": "Tech", "AMZN": "Ecommerce", "TSLA": "EV",
@@ -107,7 +107,7 @@ SECTOR_MAP = {
 MY_WATCHLIST = list(SECTOR_MAP.keys())
 
 # ==============================
-# 🛠️ UTILITIES & DATA
+# 🛠️ UTILITIES
 # ==============================
 def is_market_gold_hour():
     tz  = pytz.timezone("America/New_York")
@@ -239,27 +239,19 @@ def calc_adx(df, period=14):
 def institutional_score(df, rs_val, spy_df):
     score = 0
     avg20 = df["Volume"].rolling(20).mean()
-    
-    # 1. Volume Accum (+2)
     if (df["Volume"].iloc[-5:] > avg20.iloc[-5:]).sum() >= 3: score += 2
-    # 2. VCP Compression (+2)
     hl = df["High"] - df["Low"]
     if hl.rolling(5).mean().iloc[-1] < hl.rolling(20).mean().iloc[-1]: score += 2
-    # 3. RS Perform (+2)
     if rs_val > 0: score += 2
-    # 4. Bullish Close (+1)
     d_range = df["High"].iloc[-1] - df["Low"].iloc[-1]
     if d_range > 0 and (df["Close"].iloc[-1] - df["Low"].iloc[-1])/d_range > 0.75: score += 1
-    # 5. RS Line New High (+2)
     try:
         rs_line = df["Close"] / spy_df["Close"].reindex(df.index, method='ffill')
         if rs_line.iloc[-1] > rs_line.iloc[-21:-1].max(): score += 2
     except: pass
-    # 6. Vol Dry-up (+1)
     try:
         if (df["Volume"].iloc[-4:-1] < avg20.iloc[-4:-1] * 0.5).any(): score += 1
     except: pass
-    
     return score, calc_adx(df)
 
 # ==============================
@@ -324,10 +316,11 @@ def main():
 
     earnings_cache = load_earnings_cache()
     already_alerted = set()
+    today = datetime.now().strftime("%Y-%m-%d")
     if os.path.exists(LOG_FILE):
         try:
             log_df = pd.read_csv(LOG_FILE)
-            already_alerted = set(log_df[log_df["date"] == datetime.now().strftime("%Y-%m-%d")]["ticker"].values)
+            already_alerted = set(log_df[log_df["date"] == today]["ticker"].values)
         except: pass
 
     print(f"🔍 Scanning {len(MY_WATCHLIST)} tickers...")
@@ -348,9 +341,12 @@ def main():
             sector_count[r["sector"]] += 1
         if len(selected) >= CONFIG["MAX_ALERTS"]: break
 
+    print(f"🎯 Selected: {len(selected)} alerts")
+
     for r in selected:
-        vr = r.pop("vol_ratio")
-        log_trade(r, vr)
+        vol_ratio_val = r.pop("vol_ratio")
+        log_trade(r, vol_ratio_val)
+        
         msg = (
             f"🔭 *INSTITUTIONAL FLOW: {r['ticker']}*\n"
             f"━━━━━━━━━━━━━━━━━━\n"
@@ -365,4 +361,22 @@ def main():
             f"🛡️ Size: `{r['size']} sh` | 🎯 Prob: `{r['prob']}%`\n"
             f"━━━━━━━━━━━━━━━━━━"
         )
-        print(msg
+        
+        # Corretto: Parentesi chiusa correttamente qui sotto
+        print(msg)
+        
+        try:
+            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
+                          data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, 
+                          timeout=10)
+        except Exception as e:
+            print(f"❌ Telegram Error: {e}")
+        time.sleep(1)
+
+    save_earnings_cache(earnings_cache)
+    print("=" * 70)
+    print(f"🏁 Done — {len(selected)} alerts processed")
+    print("=" * 70)
+
+if __name__ == "__main__":
+    main()
