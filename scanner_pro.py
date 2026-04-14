@@ -1,3 +1,27 @@
+import subprocess
+import sys
+
+# ==============================================================
+# 🛠️ AUTO-INSTALLER ENGINE
+# ==============================================================
+def install(package):
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+    except Exception as e:
+        print(f"⚠️ Errore installazione {package}: {e}")
+
+# Verifica e installa le librerie necessarie prima di caricare il resto
+packages = ['pandas', 'pandas-datareader', 'numpy', 'requests']
+for p in packages:
+    try:
+        __import__(p.replace('-', '_'))
+    except ImportError:
+        print(f"🛠️ Installazione di {p} in corso...")
+        install(p)
+
+# ==============================================================
+# 🚀 NEXUS v17.1 — STOOQ SENTINEL FULL
+# ==============================================================
 import pandas as pd
 import pandas_datareader.data as web
 import numpy as np
@@ -5,25 +29,24 @@ import requests
 import warnings
 import time
 import os
+import random
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 warnings.filterwarnings("ignore")
 
-# ==============================
-# 🔑 CONFIGURAZIONE
-# ==============================
+# 🔑 CONFIGURAZIONE (Sostituisci o usa Environment Variables)
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "YOUR_TOKEN_HERE")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID_HERE")
 
 CONFIG = {
     "TOTAL_EQUITY":            100_000,
     "RISK_PER_TRADE_PERCENT":  0.01,
-    "MAX_THREADS":             5,  # Stooq regge bene 5 richieste simultanee
+    "MAX_THREADS":             5,  # Bilanciamento perfetto per Stooq
     "MAX_ALERTS":              10,
 }
 
-# SECTOR_MAP Integrale (242 Tickers)
+# 📋 WATCHLIST INTEGRALE (242 Tickers)
 SECTOR_MAP = {
     "AAPL": "Tech", "MSFT": "Tech", "GOOGL": "Tech", "META": "Tech", "AMZN": "Ecommerce", "TSLA": "EV",
     "NFLX": "Media", "BRK-B": "Finance", "NVDA": "Semis", "AMD": "Semis", "INTC": "Semis", "QCOM": "Semis",
@@ -71,42 +94,32 @@ SECTOR_MAP = {
 }
 TICKERS = list(SECTOR_MAP.keys())
 
-# ==============================
-# 🧠 CORE FUNCTIONS
-# ==============================
 def analyze_ticker(ticker):
-    """Recupera e analizza i dati da Stooq per un ticker."""
     try:
         symbol = f"{ticker}.US"
-        # Scarichiamo dati dell'ultimo anno
         df = web.DataReader(symbol, 'stooq')
-        if df.empty or len(df) < 40: return None
+        if df is None or df.empty or len(df) < 40: return None
         
-        # Stooq dà i dati invertiti (nuovo -> vecchio), rimettiamoli in ordine
         df = df.sort_index()
-        
         price = float(df["Close"].iloc[-1])
         res_20 = float(df["High"].rolling(20).max().iloc[-2])
         vol_avg = df["Volume"].rolling(20).mean().iloc[-1]
         vol_ratio = float(df["Volume"].iloc[-1] / vol_avg)
 
-        # Filtro: Breakout sopra resistenza 20gg e volumi > media
+        # Logica Breakout Quantitativa
         if price > res_20 and vol_ratio > 1.05:
-            # Institutional Score (Proxy)
             score = 0
-            if (df["Volume"].iloc[-3:] > vol_avg * 1.25).any(): score += 5
+            if (df["Volume"].iloc[-3:] > vol_avg * 1.3).any(): score += 5
+            hl_range = (df["High"] - df["Low"]).iloc[-1]
             hl_avg = (df["High"] - df["Low"]).rolling(20).mean().iloc[-1]
-            if (df["High"].iloc[-1] - df["Low"].iloc[-1]) < hl_avg * 1.15: score += 5
+            if hl_range < hl_avg * 1.2: score += 5
             
-            if score < 5: return None # Soglia minima IFS
+            if score < 5: return None
 
-            # Trade Params
             atr = float((df["High"] - df["Low"]).rolling(14).mean().iloc[-1])
             sl = round(price - (atr * 1.6), 2)
             tg = round(price + (price - sl) * 2.5, 2)
-            
-            risk_amt = CONFIG["TOTAL_EQUITY"] * CONFIG["RISK_PER_TRADE_PERCENT"]
-            size = int(risk_amt / (price - sl)) if (price - sl) > 0 else 0
+            size = int((CONFIG["TOTAL_EQUITY"] * CONFIG["RISK_PER_TRADE_PERCENT"]) / (price - sl))
 
             return {
                 "ticker": ticker, "price": round(price, 2), "ifs": score,
@@ -118,53 +131,39 @@ def analyze_ticker(ticker):
 
 def main():
     print("=" * 75)
-    print(f"🧬 NEXUS v17.0 — STOOQ-SENTINEL | {datetime.now().strftime('%H:%M')}")
+    print(f"🧬 NEXUS v17.1 — STOOQ SENTINEL | {datetime.now().strftime('%H:%M')}")
     print("=" * 75)
-    print(f"📡 Scansione di {len(TICKERS)} ticker tramite Stooq (Bypass Yahoo)...")
-
+    
     results = []
     processed = 0
     
-    # Utilizziamo ThreadPoolExecutor per parallelizzare le richieste a Stooq
     with ThreadPoolExecutor(max_workers=CONFIG["MAX_THREADS"]) as executor:
         futures = {executor.submit(analyze_ticker, t): t for t in TICKERS}
-        
         for future in as_completed(futures):
             processed += 1
             res = future.result()
             if res:
                 results.append(res)
-                print(f"✨ [{processed}/{len(TICKERS)}] TROVATO: {res['ticker']} (IFS: {res['ifs']})")
-            else:
-                if processed % 10 == 0:
-                    print(f"🔄 [{processed}/{len(TICKERS)}] In scansione...", end="\r")
+                print(f"🔥 [{processed}/{len(TICKERS)}] {res['ticker']} (IFS: {res['ifs']})")
+            if processed % 20 == 0:
+                print(f"🔄 Progresso: {processed}/{len(TICKERS)}...")
 
-    # Ordinamento e selezione
     results.sort(key=lambda x: x["ifs"], reverse=True)
-    selected = results[:CONFIG["MAX_ALERTS"]]
-
+    
     print("\n" + "=" * 75)
-    print(f"📡 REPORT FINALE — {len(selected)} OPPORTUNITÀ RILEVATE")
-    print("=" * 75)
-
-    for r in selected:
-        msg = (
-            f"🔭 *STOOQ FLOW: {r['ticker']}*\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"🏭 *SETTORE:* {r['sector']} | 📊 *IFS:* `{r['ifs']}/10`\n"
-            f"✅ *BREAKOUT:* > `${r['res']}` | 💰 *PRICE:* `${r['price']}`\n"
-            f"🎯 *TARGET:* `${r['tg']}` | 🛑 *STOP:* `${r['sl']}`\n"
-            f"💎 *STRIKE:* `${r['strike']}` | 🛡️ *SIZE:* `{r['size']} sh`\n"
-            f"━━━━━━━━━━━━━━━━━━"
-        )
+    for r in results[:CONFIG["MAX_ALERTS"]]:
+        msg = (f"🔭 *STOOQ FLOW: {r['ticker']}*\n"
+               f"🏭 *SEC:* {r['sector']} | 📊 *IFS:* `{r['ifs']}/10`\n"
+               f"✅ *ENTRY:* > `${r['res']}` | 💰 *PRICE:* `${r['price']}`\n"
+               f"🎯 *TG:* `${r['tg']}` | 🛑 *SL:* `${r['sl']}`\n"
+               f"🛡️ *SIZE:* `{r['size']} sh`\n━━━━━━━━━━━━━━━━━━")
         print(msg)
         try:
             requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
                           data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=5)
-        except:
-            pass
+        except: pass
 
-    print(f"🏁 Scansione completata alle {datetime.now().strftime('%H:%M:%S')}")
+    print(f"🏁 Fine Scansione. Trovate {len(results)} opportunità.")
 
 if __name__ == "__main__":
     main()
