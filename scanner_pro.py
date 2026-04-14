@@ -28,16 +28,16 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 warnings.filterwarnings("ignore")
 
 # ==============================================================
-# 🔑 CONFIGURAZIONE
+# 🔑 CONFIGURAZIONE (Environment Variables o Inserimento Manuale)
 # ==============================================================
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "YOUR_TOKEN_HERE")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID_HERE")
 
 CONFIG = {
     "TOTAL_EQUITY": 100_000,
-    "RISK_PER_TRADE_PERCENT": 0.01,
+    "RISK_PER_TRADE_PERCENT": 0.01, # Rischio 1% per operazione
     "MAX_THREADS": 5,
-    "MAX_ALERTS": 12
+    "MIN_IFS_THRESHOLD": 7          # 🚨 FILTRO STATISTICO RIGIDO (Solo segnali forti)
 }
 
 # 📋 WATCHLIST INTEGRALE (242 Tickers)
@@ -92,30 +92,31 @@ TICKERS = list(SECTOR_MAP.keys())
 # 🕒 SILVER WINDOW LOGIC (New York Time Base)
 # ==============================================================
 def is_silver_window():
-    """Opera solo tra le 15:00 e le 15:45 NY Time (Anti-Alterazione)"""
+    """Filtra l'operatività: 15:00 - 15:45 NY (21:00-21:45 ITA circa)"""
     tz_ny = pytz.timezone('America/New_York')
     now_ny = datetime.now(tz_ny)
     
-    if now_ny.weekday() >= 5:
-        return False, "Weekend - Mercato Chiuso"
+    if now_ny.weekday() >= 5: return False, "Weekend - Mercato Chiuso"
 
     current_min = now_ny.hour * 60 + now_ny.minute
-    start_min = 15 * 60 + 0   # 15:00 NY
-    end_min   = 15 * 60 + 45  # 15:45 NY
+    start_min = 15 * 60 + 0   # 15:00
+    end_min   = 15 * 60 + 45  # 15:45
     
     if start_min <= current_min <= end_min:
-        return True, f"SILVER WINDOW ATTIVA (NY: {now_ny.strftime('%H:%M')})"
+        return True, f"SILVER WINDOW ATTIVA (NY Time: {now_ny.strftime('%H:%M')})"
     
-    return False, f"Scanner in Standby. Silver Window: 15:00-15:45 NY (Attuale NY: {now_ny.strftime('%H:%M')})"
+    return False, f"Standby Istituzionale. Orario NY: {now_ny.strftime('%H:%M')}"
 
 # ==============================================================
-# 🧠 CORE ENGINE
+# 🧠 CORE ENGINE (Ghost Protocol)
 # ==============================================================
 def analyze_ticker(ticker):
     try:
+        # Rotazione sessione per evitare ban
         ua_list = [
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/119.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Version/17.4 Safari/605.1.15"
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Version/17.4 Safari/605.1.15",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36"
         ]
         session = requests.Session()
         session.headers.update({'User-Agent': random.choice(ua_list)})
@@ -130,37 +131,51 @@ def analyze_ticker(ticker):
         vol_avg = df["Volume"].rolling(20).mean().iloc[-1]
         vol_ratio = float(df["Volume"].iloc[-1] / vol_avg)
 
-        # Filtro Breakout Istituzionale
-        if price > (res_20 * 0.995) and vol_ratio > 1.0:
-            score = 3
-            if price > res_20: score += 2
-            if vol_ratio > 1.3: score += 5
-            
-            atr = float((df["High"] - df["Low"]).rolling(14).mean().iloc[-1])
-            sl = round(price - (atr * 1.6), 2)
-            tg = round(price + (price - sl) * 2.5, 2)
-            
-            risk_amt = CONFIG["TOTAL_EQUITY"] * CONFIG["RISK_PER_TRADE_PERCENT"]
-            size = int(risk_amt / (price - sl)) if (price - sl) > 0 else 0
+        # 📊 CALCOLO IFS (Institutional Flow Score)
+        score = 0
+        if price > res_20: score += 5             # Breakout confermato
+        elif price > (res_20 * 0.996): score += 2 # Molto vicino alla rottura
+        
+        if vol_ratio > 1.2: score += 2            # Volumi sopra media
+        if vol_ratio > 1.5: score += 3            # Volumi forti
+        if vol_ratio > 2.0: score += 5            # Accumulazione violenta
 
-            return {
-                "ticker": ticker, "price": round(price, 2), "ifs": score,
-                "sector": SECTOR_MAP.get(ticker, "Other"), "strike": round(price * 1.05, 2),
-                "tg": tg, "sl": sl, "res": round(res_20, 2), "size": size
-            }
-    except: return None
+        # 🚨 FILTRO STATISTICO RIGIDO
+        if score < CONFIG["MIN_IFS_THRESHOLD"]:
+            return None
+
+        # Parametri Gestione Rischio (ATR)
+        atr = float((df["High"] - df["Low"]).rolling(14).mean().iloc[-1])
+        sl = round(price - (atr * 1.6), 2)
+        tg = round(price + (price - sl) * 2.5, 2)
+        
+        # Calcolo Position Size (Rischio 1%)
+        risk_amt = CONFIG["TOTAL_EQUITY"] * CONFIG["RISK_PER_TRADE_PERCENT"]
+        size = int(risk_amt / (price - sl)) if (price - sl) > 0 else 0
+
+        return {
+            "ticker": ticker, "price": round(price, 2), "ifs": score,
+            "sector": SECTOR_MAP.get(ticker, "Other"),
+            "tg": tg, "sl": sl, "size": size
+        }
+    except:
+        return None
 
 def main():
     active, status_msg = is_silver_window()
     print("-" * 75)
-    print(f"🕒 STATUS: {status_msg}")
+    print(f"🕒 {status_msg}")
     print("-" * 75)
     
+    # Rimuovere il commento alla riga sotto per eseguire test fuori orario
+    # active = True 
+
     if not active:
-        # Rimuovi il 'return' sotto solo per testare manualmente fuori orario
+        print("🛑 Lo scanner si attiverà solo durante la Silver Window (15:00-15:45 NY).")
         return 
 
-    print(f"🧬 NEXUS v23.0 — SILVER WINDOW ENGINE | Avvio scansione...")
+    print(f"🚀 Avvio Scansione su {len(TICKERS)} titoli (Soglia IFS: {CONFIG['MIN_IFS_THRESHOLD']})...")
+    
     results = []
     processed = 0
     
@@ -171,25 +186,25 @@ def main():
             res = future.result()
             if res:
                 results.append(res)
-                print(f"✨ [{processed}/{len(TICKERS)}] TROVATO: {res['ticker']}")
+                # Notifica Immediata
+                label = "🌟 PERFECT SETUP" if res['ifs'] >= 10 else "🔭 SILVER FLOW"
+                msg = (f"{label}: *{res['ticker']}*\n"
+                       f"📊 *IFS:* `{res['ifs']}/10` | 🏭 *SEC:* {res['sector']}\n"
+                       f"✅ *ENTRY:* `${res['price']}` | 🎯 *TG:* `${res['tg']}`\n"
+                       f"🛑 *SL:* `${res['sl']}` | 🛡️ *SIZE:* `{res['size']} sh`\n"
+                       f"━━━━━━━━━━━━━━━━━━")
+                
+                print(f"✅ TROVATO: {res['ticker']} (IFS: {res['ifs']})")
+                try:
+                    requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
+                                  data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=5)
+                except: pass
             
             if processed % 50 == 0:
-                time.sleep(random.uniform(2, 4)) # Jitter per sicurezza IP
+                print(f"🔄 Analizzati {processed}/{len(TICKERS)} titoli...")
+                time.sleep(random.uniform(2, 4)) # Sicurezza aggiuntiva anti-ban
 
-    results.sort(key=lambda x: x["ifs"], reverse=True)
-    selected = results[:CONFIG["MAX_ALERTS"]]
-
-    for r in selected:
-        msg = (f"🔭 *SILVER FLOW: {r['ticker']}*\n"
-               f"🏭 *SEC:* {r['sector']} | 📊 *IFS:* `{r['ifs']}/10`\n"
-               f"✅ *ENTRY:* `${r['price']}` | 🎯 *TG:* `${r['tg']}`\n"
-               f"🛑 *SL:* `${r['sl']}` | 🛡️ *SIZE:* `{r['size']} sh`\n━━━━━━━━━━━━━━━━━━")
-        try:
-            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
-                          data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=5)
-        except: pass
-
-    print(f"🏁 Fine scansione. Inviati {len(selected)} alert.")
+    print(f"🏁 Scansione completata. Trovate {len(results)} opportunità ad alta probabilità.")
 
 if __name__ == "__main__":
     main()
