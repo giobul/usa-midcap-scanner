@@ -5,29 +5,14 @@ import requests
 import warnings
 import time
 import os
-import random
 from datetime import datetime
 from collections import defaultdict
-from io import StringIO
 
-# ==============================
-# 🛡️ PROTEZIONE E SILENZIAMENTO
-# ==============================
 warnings.filterwarnings("ignore")
-import urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ==============================
-# 🔑 CONFIGURAZIONE E SESSIONE
+# 🔑 CONFIGURAZIONE
 # ==============================
-session = requests.Session()
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
-]
-
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "YOUR_TOKEN_HERE")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID_HERE")
 
@@ -38,9 +23,7 @@ CONFIG = {
     "MAX_PER_SECTOR":          3,
 }
 
-# ==============================
-# 📋 SECTOR MAP INTEGRALE (242 Tickers)
-# ==============================
+# SECTOR_MAP Integrale (242 Tickers)
 SECTOR_MAP = {
     "AAPL": "Tech", "MSFT": "Tech", "GOOGL": "Tech", "META": "Tech", "AMZN": "Ecommerce", "TSLA": "EV",
     "NFLX": "Media", "BRK-B": "Finance", "NVDA": "Semis", "AMD": "Semis", "INTC": "Semis", "QCOM": "Semis",
@@ -86,151 +69,107 @@ SECTOR_MAP = {
     "SEDG": "CleanEnergy", "ENPH": "CleanEnergy", "BLNK": "CleanEnergy", "RBLX": "Gaming", "DKNG": "Gaming",
     "RKLB": "Aerospace", "OPEN": "Tech", "IONQ": "Tech"
 }
-MY_WATCHLIST = list(SECTOR_MAP.keys())
-random.shuffle(MY_WATCHLIST) # Shuffle per evitare di scansionare sempre gli stessi per primi
+TICKERS = list(SECTOR_MAP.keys())
 
 # ==============================
-# 🛠️ UTILITIES & REGIME
+# 🚀 BATCH DOWNLOAD ENGINE
 # ==============================
-def get_market_regime():
-    # Per oggi, 14 Aprile 2026, lo SPY è in trend rialzista sopra la SMA50
-    print("📡 Inizializzazione dati di mercato (Safe Mode Priority)...")
-    curr_close, sma50, is_bull, min_ifs = 693.21, 672.93, True, 4
-    print(f"📊 SPY: ${curr_close:.2f} | SMA50: ${sma50:.2f} | Status: 🟢 BULL (Aggressivo)")
-    return is_bull, min_ifs
-
-def institutional_score(df):
-    score = 0
-    vol_avg = df["Volume"].rolling(20).mean()
-    # 1. Unusual Volume Accumulation
-    if (df["Volume"].iloc[-3:] > vol_avg.iloc[-3:] * 1.2).any(): score += 4
-    
-    # 2. VCP (Volatility Contraction)
-    hl = (df["High"] - df["Low"]).rolling(5).mean()
-    if hl.iloc[-1] < hl.iloc[-20:].mean() * 1.1: score += 4
-    
-    # 3. RS Line Proxy
-    if df["Close"].iloc[-1] > df["Close"].rolling(50).mean().iloc[-1]: score += 2
-    return score
-
-# ==============================
-# 🧠 ANALISI TICKER (STEALTH)
-# ==============================
-def analyze_ticker(ticker, min_ifs_threshold):
-    # RITARDO CASUALE CRITICO: Simula comportamento umano
-    time.sleep(random.uniform(2.0, 4.5))
-    
-    # Ruota l'identità ad ogni chiamata
-    session.headers.update({"User-Agent": random.choice(USER_AGENTS)})
-    
+def get_batch_data(ticker_list):
+    """Scarica i dati per tutti i ticker in un colpo solo."""
+    print(f"📡 Scaricamento Batch di {len(ticker_list)} ticker...")
     try:
-        df = yf.download(ticker, period="6mo", progress=False, auto_adjust=True, session=session, timeout=12)
-        if df is None or len(df) < 45: return None
+        # Usiamo il metodo group_by per avere un DataFrame multi-indice
+        data = yf.download(ticker_list, period="6mo", interval="1d", group_by='ticker', auto_adjust=True, progress=True)
+        return data
+    except Exception as e:
+        print(f"❌ Errore Batch: {e}")
+        return None
+
+def analyze_ticker_data(ticker, full_data, min_ifs):
+    """Analizza il singolo ticker partendo dal mega-dataframe batch."""
+    try:
+        df = full_data[ticker].dropna()
+        if len(df) < 40: return None
         
         price = float(df["Close"].iloc[-1])
-        # Resistenza di breve (20gg)
         res_20 = float(df["High"].rolling(20).max().iloc[-2])
         vol_avg = df["Volume"].rolling(20).mean().iloc[-1]
         vol_ratio = float(df["Volume"].iloc[-1] / vol_avg)
-        
-        # Filtro Liquidità Minima
-        if (price * vol_avg) < 1_500_000: return None
 
-        # Condizione di Breakout e Volume
-        if price > res_20 and vol_ratio > 1.05:
-            ifs = institutional_score(df)
-            if ifs < min_ifs_threshold: return None
+        # Filtro Breakout & Volume
+        if price > res_20 and vol_ratio > 1.1:
+            score = 0
+            if (df["Volume"].iloc[-3:] > vol_avg * 1.3).any(): score += 5
+            hl_range = (df["High"] - df["Low"]).iloc[-1]
+            hl_avg = (df["High"] - df["Low"]).rolling(20).mean().iloc[-1]
+            if hl_range < hl_avg * 1.1: score += 5
             
-            # Calcoli Tecnici
+            if score < min_ifs: return None
+
             atr = float((df["High"] - df["Low"]).rolling(14).mean().iloc[-1])
             sl = round(price - (atr * 1.5), 2)
             tg = round(price + (price - sl) * 2.5, 2)
-            
-            # Risk Management (1% Equity Risk)
-            risk_amt = CONFIG["TOTAL_EQUITY"] * CONFIG["RISK_PER_TRADE_PERCENT"]
-            size = int(risk_amt / (price - sl)) if (price - sl) > 0 else 0
-            
-            if size <= 0: return None
-            
-            return {
-                "ticker": ticker, "price": round(price, 2), "ifs": ifs,
-                "sector": SECTOR_MAP.get(ticker, "Other"), 
-                "strike": round(price * 1.05, 2), # 5% OTM Strike
-                "tg": tg, "sl": sl, "vol_ratio": round(vol_ratio, 2), "res": round(res_20, 2),
-                "size": size
-            }
-    except:
-        return None
+            size = int((CONFIG["TOTAL_EQUITY"] * CONFIG["RISK_PER_TRADE_PERCENT"]) / (price - sl))
 
-# ==============================
-# 🚀 MAIN EXECUTION
-# ==============================
+            return {
+                "ticker": ticker, "price": round(price, 2), "ifs": score,
+                "sector": SECTOR_MAP.get(ticker, "Other"), "strike": round(price * 1.05, 2),
+                "tg": tg, "sl": sl, "res": round(res_20, 2), "size": size
+            }
+    except: return None
+
 def main():
     print("=" * 75)
-    print(f"🧬 NEXUS v15.1 SENTINEL — {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    print(f"🧬 NEXUS v16.0 — TITAN BATCH | {datetime.now().strftime('%H:%M')}")
     print("=" * 75)
+    
+    # Parametri Manuali SPY (14 Aprile 2026)
+    is_bull, min_ifs = True, 5
+    print(f"📊 Market Mode: BULL (Manuale) | Ticker totali: {len(TICKERS)}")
 
-    is_bull, min_ifs = get_market_regime()
-    if not is_bull:
-        print("🛑 Mercato in fase discendente. Scansione annullata.")
-        return
-
-    print(f"🔍 Scansione Stealth di {len(MY_WATCHLIST)} ticker in corso...")
-    print("⚠️  Nota: La scansione sequenziale richiede più tempo per evitare ban (15-20 min).")
+    # Dividiamo la lista in 3 blocchi per evitare ban sui pacchetti troppo grandi
+    chunk_size = 85
+    chunks = [TICKERS[i:i + chunk_size] for i in range(0, len(TICKERS), chunk_size)]
     
     results = []
-    processed = 0
-    total = len(MY_WATCHLIST)
-
-    for ticker in MY_WATCHLIST:
-        processed += 1
-        print(f"[{processed}/{total}] Analizzo: {ticker: <6}", end="\r")
+    
+    for i, chunk in enumerate(chunks):
+        print(f"\n📦 Elaborazione Blocco {i+1}/{len(chunks)}...")
+        batch_df = get_batch_data(chunk)
         
-        res = analyze_ticker(ticker, min_ifs)
-        if res:
-            results.append(res)
-            print(f"\n✅ WHALE FLOW DETECTED: {res['ticker']} (IFS: {res['ifs']}/10) | P: ${res['price']}")
+        if batch_df is not None:
+            for ticker in chunk:
+                res = analyze_ticker_data(ticker, batch_df, min_ifs)
+                if res:
+                    results.append(res)
+                    print(f"✨ {res['ticker']} (IFS: {res['ifs']}) rilevato nel settore {res['sector']}")
+        
+        # Pausa tra i blocchi per respirare
+        if i < len(chunks) - 1:
+            print("⏳ Pausa di raffreddamento IP...")
+            time.sleep(5)
 
-    # Ordinamento per Institutional Flow Score
     results.sort(key=lambda x: x["ifs"], reverse=True)
     
-    selected = []
-    sector_count = defaultdict(int)
-    for r in results:
-        if sector_count[r["sector"]] < CONFIG["MAX_PER_SECTOR"]:
-            selected.append(r)
-            sector_count[r["sector"]] += 1
-        if len(selected) >= CONFIG["MAX_ALERTS"]: break
-
     print("\n" + "=" * 75)
-    print(f"📡 REPORT FINALE — {len(selected)} ALERT GENERATI")
+    print(f"📡 REPORT FINALE — {len(results)} OPPORTUNITÀ")
     print("=" * 75)
 
+    selected = results[:CONFIG["MAX_ALERTS"]]
     for r in selected:
-        msg = (
-            f"🔭 *FLOW ALERT: {r['ticker']}*\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"🏭 *SETTORE:* {r['sector']} | 📊 *IFS:* `{r['ifs']}/10`\n"
-            f"✅ *BREAKOUT:* sopra `${r['res']}`\n"
-            f"💰 *PREZZO ATTUALE:* `${r['price']}`\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"🎯 *TARGET:* `${r['tg']}`\n"
-            f"🛑 *STOP LOSS:* `${r['sl']}`\n"
-            f"💎 *CALL STRIKE:* `${r['strike']}` (Exp: 30-45d)\n"
-            f"🛡️ *POSITION SIZE:* `{r['size']} azioni`\n"
-            f"━━━━━━━━━━━━━━━━━━"
-        )
+        msg = (f"🔭 *TITAN ALERT: {r['ticker']}*\n"
+               f"📊 *IFS:* `{r['ifs']}/10` | *SETTORE:* {r['sector']}\n"
+               f"✅ *BREAKOUT:* > `${r['res']}` | 💰 *PRICE:* `${r['price']}`\n"
+               f"🎯 *TARGET:* `${r['tg']}` | 🛑 *STOP:* `${r['sl']}`\n"
+               f"💎 *STRIKE:* `${r['strike']}` | 🛡️ *SIZE:* `{r['size']} sh`\n"
+               f"━━━━━━━━━━━━━━━━━━")
         print(msg)
-        
-        # Invio a Telegram
         try:
             requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
-                          data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=8)
-        except:
-            pass
+                          data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=5)
+        except: pass
 
-    print("=" * 75)
-    print(f"🏁 Fine Scansione — Nexus Sentinel v15.1")
+    print(f"🏁 Scansione completata. {len(selected)} alert inviati.")
 
 if __name__ == "__main__":
     main()
