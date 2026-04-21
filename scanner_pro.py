@@ -18,20 +18,33 @@ from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ==============================================================
-# 🛠️  AUTO-INSTALLER
+# 🛠️  AUTO-INSTALLER (Versione Corretta per GitHub Actions)
 # ==============================================================
 def _install(package: str) -> None:
     try:
-        __import__(package)
+        __import__(package.replace('-', '_'))
     except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package, "-q"])
+        # Se è pandas_ta, usiamo il link diretto a GitHub per evitare errori di versione Python
+        if package == "pandas_ta":
+            pkg_to_install = "git+https://github.com/twopirllc/pandas-ta.git"
+        else:
+            pkg_to_install = package
+            
+        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg_to_install, "-q"])
 
-for _pkg in ["pandas", "numpy", "requests", "yfinance", "pytz", "pandas_ta"]:
+# Installiamo i pacchetti base
+for _pkg in ["pandas", "numpy", "requests", "yfinance", "pytz"]:
     _install(_pkg)
+
+# Installazione specifica per pandas_ta
+try:
+    import pandas_ta as ta
+except ImportError:
+    _install("pandas_ta")
+    import pandas_ta as ta
 
 import yfinance as yf
 import pandas as pd
-import pandas_ta as ta
 import numpy as np
 import requests
 import pytz
