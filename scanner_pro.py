@@ -10,7 +10,7 @@ from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ==============================================================
-# 🛠️ AUTO-INSTALLER (Solo pacchetti stabili)
+# 🛠️ AUTO-INSTALLER (Solo pacchetti ultra-stabili)
 # ==============================================================
 def _install(package: str) -> None:
     try:
@@ -53,6 +53,23 @@ def calculate_vwap(df):
     return (tp * v).cumsum() / v.cumsum()
 
 # ==============================================================
+# 🕒 CONTROLLO ORARIO (Silver Window)
+# ==============================================================
+def is_silver_window() -> tuple[bool, str]:
+    tz_ny = pytz.timezone("America/New_York")
+    now_ny = datetime.now(tz_ny)
+    if now_ny.weekday() >= 5:
+        return False, "Weekend — Mercato chiuso."
+    
+    current_min = now_ny.hour * 60 + now_ny.minute
+    window_start = 15 * 60 + 15  # 15:15 NY
+    window_end = 16 * 60         # 16:00 NY
+    
+    if window_start <= current_min <= window_end:
+        return True, f"✅ SILVER WINDOW ATTIVA (NY: {now_ny.strftime('%H:%M')})"
+    return False, f"⏳ Standby — NY: {now_ny.strftime('%H:%M')}. Apertura scanner: 15:15 NY."
+
+# ==============================================================
 # ⚙️ CONFIGURAZIONE
 # ==============================================================
 @dataclass
@@ -61,7 +78,7 @@ class ScannerConfig:
     telegram_chat_id: str = field(default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID", "YOUR_ID"))
     total_equity: float   = 100000.0
     risk_per_trade_pct: float = 0.01
-    max_threads: int      = 10
+    max_threads: int      = 15
     min_ifs_threshold: int = 8
     rr_ratio: float       = 1.5
     max_trades_per_sector: int = 2
@@ -143,7 +160,7 @@ SECTOR_MAP = {
 TICKERS = list(SECTOR_MAP.keys())
 
 # ==============================================================
-# 🧠 CORE ENGINE (Native Optimization)
+# 🧠 CORE ENGINE
 # ==============================================================
 def analyze_ticker(ticker: str) -> Optional[dict]:
     try:
@@ -153,7 +170,7 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
         
         df.columns = [c.lower() for c in df.columns]
         
-        # Calcolo indicatori nativi
+        # Indicatori Nativi
         price = df['close'].iloc[-1]
         df['rsi'] = calculate_rsi(df['close'])
         df['atr'] = calculate_atr(df)
@@ -163,14 +180,14 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
         atr = df['atr'].iloc[-1]
         vwap = df['vwap'].iloc[-1]
         
-        # Logica IFS (Max 12)
+        # Punteggio IFS
         score = 0
         if price > vwap: score += 3
         if 60 < rsi < 75: score += 2
         elif rsi >= 75: score += 1
         elif rsi < 50: score -= 5
         
-        # Calcolo RVOL (Rispetto alle ultime 20 candele 15m)
+        # Volume Ratio (RVOL)
         curr_vol = df['volume'].iloc[-1]
         avg_vol = df['volume'].tail(20).mean()
         vol_ratio = curr_vol / avg_vol if avg_vol > 0 else 0
@@ -178,7 +195,7 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
         if vol_ratio > 1.5: score += 2
         if vol_ratio > 2.5: score += 4
         
-        # Breakout 20 periodi
+        # Breakout Resistenza 20 candele
         res_20 = df['high'].rolling(20).max().iloc[-2]
         if price > res_20: score += 3
 
@@ -206,7 +223,16 @@ def send_telegram(msg: str) -> None:
     except: pass
 
 def main():
-    print(f"🚀 Avvio Scanner V5 (Native Edition) - {len(TICKERS)} tickers")
+    # 1. Controllo Finestra Operativa
+    active, status_msg = is_silver_window()
+    print(status_msg)
+    
+    # Se vuoi testare ora anche se il mercato è chiuso, commenta le due righe sotto:
+    if not active:
+        return
+
+    # 2. Avvio Scansione
+    print(f"🚀 Analisi istituzionale su {len(TICKERS)} titoli...")
     results = []
     sector_counts = {}
 
@@ -233,10 +259,10 @@ def main():
                     f"━━━━━━━━━━━━━━━━━━"
                 )
                 send_telegram(msg)
-                print(f"✅ Alert inviato: {res['ticker']} (IFS {res['ifs']})")
+                print(f"✅ ALERT: {res['ticker']} (IFS {res['ifs']})")
 
     if results:
-        summary = f"📋 *Scansione Completata*\nTrovati {len(results)} segnali su {len(TICKERS)} titoli."
+        summary = f"📋 *Fine Sessione Silver Window*\nInviati {len(results)} segnali validi."
         send_telegram(summary)
 
 if __name__ == "__main__":
