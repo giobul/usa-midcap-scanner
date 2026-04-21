@@ -1,51 +1,28 @@
-"""
-╔══════════════════════════════════════════════════════════════╗
-║          SILVER WINDOW SCANNER — V5 (Production)            ║
-║  Miglioramenti V5: filtro SPY trend + filtro earnings,       ║
-║  blocca scansione su mercato ribassista o news imminenti     ║
-╚══════════════════════════════════════════════════════════════╝
-"""
-
 import subprocess
 import sys
 import os
 import time
 import logging
 import warnings
-from datetime import datetime, timedelta
+from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ==============================================================
-# 🛠️  AUTO-INSTALLER (Versione Definitiva "Direct-Link")
+# 🛠️ AUTO-INSTALLER (Solo pacchetti stabili)
 # ==============================================================
 def _install(package: str) -> None:
     try:
-        # Verifica se il pacchetto è già importabile
-        __import__(package.replace('-', '_'))
+        __import__(package)
     except ImportError:
-        if package == "pandas-ta":
-            # Usiamo il link diretto al file sorgente per saltare i blocchi di versione di Pip
-            pkg_to_install = "https://github.com/twopirllc/pandas-ta/archive/refs/heads/main.zip"
-        else:
-            pkg_to_install = package
-            
-        print(f"📦 Installazione forzata di {package}...")
-        try:
-            # Usiamo --no-deps se necessario, ma proviamo prima normale
-            subprocess.check_call([sys.executable, "-m", "pip", "install", pkg_to_install, "-q"])
-        except Exception as e:
-            print(f"⚠️ Errore durante l'installazione di {package}: {e}")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package, "-q"])
 
-# Lista pacchetti necessari
-for _pkg in ["pandas", "numpy", "requests", "yfinance", "pytz", "pandas-ta"]:
+for _pkg in ["pandas", "numpy", "requests", "yfinance", "pytz"]:
     _install(_pkg)
 
-# Importazioni
 import yfinance as yf
 import pandas as pd
-import pandas_ta as ta
 import numpy as np
 import requests
 import pytz
@@ -53,55 +30,50 @@ import pytz
 warnings.filterwarnings("ignore")
 
 # ==============================================================
-# 📋  LOGGING — sostituisce tutti i "except: pass"
+# 📈 FUNZIONI TECNICHE NATIVE (Sostituiscono pandas_ta)
 # ==============================================================
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%H:%M:%S",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler("scanner_v5.log", encoding="utf-8"),
-    ],
-)
-log = logging.getLogger("SilverScannerV5")
+def calculate_rsi(series, period=14):
+    delta = series.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
+
+def calculate_atr(df, period=14):
+    high_low = df['high'] - df['low']
+    high_close = np.abs(df['high'] - df['close'].shift())
+    low_close = np.abs(df['low'] - df['close'].shift())
+    ranges = pd.concat([high_low, high_close, low_close], axis=1)
+    true_range = np.max(ranges, axis=1)
+    return true_range.rolling(window=period).mean()
+
+def calculate_vwap(df):
+    v = df['volume'].values
+    tp = (df['high'] + df['low'] + df['close']).values / 3
+    return (tp * v).cumsum() / v.cumsum()
 
 # ==============================================================
-# ⚙️  CONFIGURAZIONE SEPARATA DALLA LOGICA
-#     Puoi sovrascrivere ogni valore tramite variabili d'ambiente
-#     es: export TOTAL_EQUITY=50000
+# ⚙️ CONFIGURAZIONE
 # ==============================================================
 @dataclass
 class ScannerConfig:
-    # Credenziali Telegram (da env o inserimento diretto)
-    telegram_token: str   = field(default_factory=lambda: os.getenv("TELEGRAM_TOKEN", "YOUR_TOKEN_HERE"))
-    telegram_chat_id: str = field(default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID_HERE"))
-
-    # Parametri equity e rischio
-    total_equity: float           = field(default_factory=lambda: float(os.getenv("TOTAL_EQUITY", "100000")))
-    risk_per_trade_pct: float     = field(default_factory=lambda: float(os.getenv("RISK_PCT", "0.01")))
-
-    # Motore di scansione
-    max_threads: int              = field(default_factory=lambda: int(os.getenv("MAX_THREADS", "8")))
-    min_ifs_threshold: int        = field(default_factory=lambda: int(os.getenv("MIN_IFS", "8")))
-    rr_ratio: float               = field(default_factory=lambda: float(os.getenv("RR_RATIO", "1.5")))
-
-    # Filtri aggiuntivi V3
-    max_trades_per_sector: int    = 2      # Evita correlazione settoriale
-    telegram_rate_limit_sec: float= 0.35   # ~3 msg/sec, limite Telegram è 30/sec
-    timeout_exit_ny_hour: int     = 16     # Exit time: 16:15 NY
-    timeout_exit_ny_min: int      = 15
-
-    # IFS massimo raggiungibile con la logica attuale = 12
+    telegram_token: str   = field(default_factory=lambda: os.getenv("TELEGRAM_TOKEN", "YOUR_TOKEN"))
+    telegram_chat_id: str = field(default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID", "YOUR_ID"))
+    total_equity: float   = 100000.0
+    risk_per_trade_pct: float = 0.01
+    max_threads: int      = 10
+    min_ifs_threshold: int = 8
+    rr_ratio: float       = 1.5
+    max_trades_per_sector: int = 2
     ifs_max: int = 12
-    ifs_institutional_threshold: int = 11  # >= 11 = "Institutional Buy"
+    ifs_institutional_threshold: int = 11
 
 CFG = ScannerConfig()
 
 # ==============================================================
-# 📋  WATCHLIST INTEGRALE (242 Tickers)
+# 📋 WATCHLIST INTEGRALE (242 Tickers)
 # ==============================================================
-SECTOR_MAP: dict[str, str] = {
+SECTOR_MAP = {
     "AAPL": "Tech", "MSFT": "Tech", "GOOGL": "Tech", "META": "Tech",
     "AMZN": "Ecommerce", "TSLA": "EV", "NFLX": "Media", "BRK-B": "Finance",
     "NVDA": "Semis", "AMD": "Semis", "INTC": "Semis", "QCOM": "Semis",
@@ -171,295 +143,101 @@ SECTOR_MAP: dict[str, str] = {
 TICKERS = list(SECTOR_MAP.keys())
 
 # ==============================================================
-# 🕒  SILVER WINDOW
+# 🧠 CORE ENGINE (Native Optimization)
 # ==============================================================
-def is_silver_window() -> tuple[bool, str]:
-    tz_ny = pytz.timezone("America/New_York")
-    now_ny = datetime.now(tz_ny)
-    if now_ny.weekday() >= 5:
-        return False, "Weekend — mercato chiuso"
-    cur = now_ny.hour * 60 + now_ny.minute
-    if 15 * 60 <= cur <= 15 * 60 + 45:
-        return True, f"SILVER WINDOW ATTIVA — NY {now_ny.strftime('%H:%M')}"
-    return False, f"Standby istituzionale — NY {now_ny.strftime('%H:%M')}"
-
-# ==============================================================
-# 🧠  CORE ENGINE V5
-# ==============================================================
-def _safe_vwap(df: pd.DataFrame) -> Optional[float]:
-    """Recupera il VWAP indipendentemente dal suffisso generato da pandas_ta."""
-    cols = [c for c in df.columns if c.upper().startswith("VWAP")]
-    if not cols:
-        return None
-    return float(df[cols[0]].iloc[-1])
-
-def _calc_rvol(df: pd.DataFrame) -> float:
-    """
-    RVOL time-aware: confronta il volume della candela corrente con la media
-    storica delle sole candele nello stesso slot orario (es. tutte le 15:00).
-
-    Con period="7d" abbiamo ~5 campioni per slot → media robusta.
-    Fallback automatico a rolling-20 se lo storico è insufficiente.
-    """
-    try:
-        curr_vol  = float(df["volume"].iloc[-1])
-        curr_time = df.index[-1].time()   # V5: .time() diretto, no conversione timezone
-
-        # Tutte le candele con lo stesso orario, esclusa quella corrente
-        same_slot = df.loc[df.index.time == curr_time, "volume"].iloc[:-1]
-
-        if len(same_slot) >= 3:
-            avg_slot_vol = float(same_slot.mean())
-            return curr_vol / avg_slot_vol if avg_slot_vol > 0 else 0.0
-
-    except Exception:
-        pass  # Fallback intenzionale — non critico
-
-    # Fallback: media rolling 20 candele
-    vol_avg = float(df["volume"].rolling(20).mean().iloc[-1])
-    return float(df["volume"].iloc[-1] / vol_avg) if vol_avg > 0 else 0.0
-
-
-
-def _check_spy_trend() -> bool:
-    """
-    Filtro macro: verifica che SPY sia sopra la sua media mobile a 8 periodi
-    sulla timeframe 15min. Se il mercato è in trend ribassista globale,
-    i breakout sui singoli titoli sono per lo più falsi — blocca la scansione.
-    Restituisce True se il trend è bullish (ok per operare).
-    """
-    try:
-        spy = yf.Ticker("SPY")
-        df  = spy.history(period="2d", interval="15m")
-        if df.empty or len(df) < 10:
-            log.warning("SPY: dati insufficienti — procedo comunque")
-            return True  # Fallback permissivo: meglio perdere il filtro che bloccare tutto
-        close     = df["Close"]
-        ma8       = close.rolling(8).mean()
-        spy_ok    = float(close.iloc[-1]) > float(ma8.iloc[-1])
-        spy_price = float(close.iloc[-1])
-        spy_ma    = float(ma8.iloc[-1])
-        log.info("SPY trend check: %.2f vs MA8 %.2f → %s",
-                 spy_price, spy_ma, "BULLISH ✅" if spy_ok else "BEARISH ❌")
-        return spy_ok
-    except Exception as e:
-        log.warning("SPY trend check fallito (%s) — procedo comunque", e)
-        return True  # Fallback permissivo
-
-
-def _has_earnings_soon(stock: yf.Ticker, ticker: str) -> bool:
-    """
-    Filtro earnings: restituisce True se il ticker ha earnings entro 1 giorno.
-    In quel caso il segnale viene scartato — la volatilità da earnings
-    invalida qualsiasi analisi tecnica intraday.
-    """
-    try:
-        cal = stock.calendar
-        # yfinance restituisce un dict o un DataFrame a seconda della versione
-        if cal is None:
-            return False
-        if isinstance(cal, dict):
-            date_val = cal.get("Earnings Date")
-            if not date_val:
-                return False
-            # Può essere una lista o un singolo valore
-            earnings_date = date_val[0] if isinstance(date_val, list) else date_val
-        else:
-            # DataFrame: prima colonna, prima riga
-            if cal.empty:
-                return False
-            earnings_date = cal.iloc[0, 0]
-
-        # Normalizza a datetime
-        if hasattr(earnings_date, "date"):
-            earnings_date = earnings_date.date()
-        today = datetime.now(pytz.timezone("America/New_York")).date()
-        days_to_earnings = (earnings_date - today).days
-        if 0 <= days_to_earnings <= 1:
-            log.info("SKIP %s — earnings tra %d giorno/i (%s)", ticker, days_to_earnings, earnings_date)
-            return True
-    except Exception as e:
-        log.debug("[%s] earnings check fallito (%s) — procedo comunque", ticker, e)
-    return False
-
-
 def analyze_ticker(ticker: str) -> Optional[dict]:
     try:
         stock = yf.Ticker(ticker)
-
-        # Filtro earnings: salta se earnings entro 24h
-        if _has_earnings_soon(stock, ticker):
-            return None
-
-        df = stock.history(period="7d", interval="15m")  # V5: più campioni per RVOL slot
-
-        if df.empty or len(df) < 30:
-            return None
-
-        # Normalizza nomi colonne
+        df = stock.history(period="7d", interval="15m")
+        if df.empty or len(df) < 30: return None
+        
         df.columns = [c.lower() for c in df.columns]
-
-        # Indicatori tecnici
-        df.ta.vwap(append=True)
-        df.ta.rsi(length=14, append=True)
-        df.ta.atr(length=14, append=True)
-
-        curr = df.iloc[-1]
-
-        price = float(curr["close"])
-        vwap  = _safe_vwap(df)          # FIX: nome colonna dinamico
-        rsi   = float(curr.get("rsi_14", 50))
-        atr   = float(curr.get("atrr_14", curr.get("atr_14", price * 0.01)))
-
-        if vwap is None or atr <= 0:
-            return None
-
-        # ── IFS V5 (max = 12) ──────────────────────────────────
+        
+        # Calcolo indicatori nativi
+        price = df['close'].iloc[-1]
+        df['rsi'] = calculate_rsi(df['close'])
+        df['atr'] = calculate_atr(df)
+        df['vwap'] = calculate_vwap(df)
+        
+        rsi = df['rsi'].iloc[-1]
+        atr = df['atr'].iloc[-1]
+        vwap = df['vwap'].iloc[-1]
+        
+        # Logica IFS (Max 12)
         score = 0
+        if price > vwap: score += 3
+        if 60 < rsi < 75: score += 2
+        elif rsi >= 75: score += 1
+        elif rsi < 50: score -= 5
+        
+        # Calcolo RVOL (Rispetto alle ultime 20 candele 15m)
+        curr_vol = df['volume'].iloc[-1]
+        avg_vol = df['volume'].tail(20).mean()
+        vol_ratio = curr_vol / avg_vol if avg_vol > 0 else 0
+        
+        if vol_ratio > 1.5: score += 2
+        if vol_ratio > 2.5: score += 4
+        
+        # Breakout 20 periodi
+        res_20 = df['high'].rolling(20).max().iloc[-2]
+        if price > res_20: score += 3
 
-        # A. VWAP (+3)
-        if price > vwap:
-            score += 3
+        if score < CFG.min_ifs_threshold: return None
 
-        # B. RSI momentum (+2 / +1 / penalità -5)
-        if 60 < rsi < 75:
-            score += 2
-        elif rsi >= 75:
-            score += 1   # Ipercomprato: segnale più debole
-        elif rsi < 50:
-            score -= 5   # Debolezza strutturale — scarta
-
-        # C. Breakout + Volume (+3 +2 +4)
-        # V5: RVOL time-aware — confronta candela 15:00 vs media storica 15:00
-        # (non le 20 candele precedenti che mescolano lunch/open con diverso profilo)
-        res_20    = float(df["high"].rolling(20).max().iloc[-2])
-        vol_ratio = _calc_rvol(df)
-
-        if price > res_20:
-            score += 3
-        if vol_ratio > 1.5:
-            score += 2
-        if vol_ratio > 2.5:
-            score += 4
-
-        if score < CFG.min_ifs_threshold:
-            return None
-
-        # ── Money Management ────────────────────────────────────
-        sl   = round(price - atr * 1.5, 2)
-        tg   = round(price + (price - sl) * CFG.rr_ratio, 2)
-        risk = CFG.total_equity * CFG.risk_per_trade_pct
-        size = int(risk / (price - sl)) if (price - sl) > 0 else 0
+        # Money Management
+        sl = round(price - atr * 1.5, 2)
+        tg = round(price + (price - sl) * CFG.rr_ratio, 2)
+        risk_amount = CFG.total_equity * CFG.risk_per_trade_pct
+        size = int(risk_amount / (price - sl)) if (price - sl) > 0 else 0
 
         return {
-            "ticker":    ticker,
-            "price":     round(price, 2),
-            "ifs":       score,
-            "rsi":       round(rsi, 1),
-            "vwap_pos":  "SOPRA" if price > vwap else "SOTTO",
-            "vol_ratio": round(vol_ratio, 2),
-            "sector":    SECTOR_MAP.get(ticker, "Other"),
-            "tg":        tg,
-            "sl":        sl,
-            "size":      size,
+            "ticker": ticker, "price": round(price, 2), "ifs": score,
+            "rsi": round(rsi, 1), "vwap_pos": "SOPRA" if price > vwap else "SOTTO",
+            "vol_ratio": round(vol_ratio, 2), "sector": SECTOR_MAP.get(ticker, "Other"),
+            "tg": tg, "sl": sl, "size": size
         }
+    except: return None
 
-    except Exception as e:
-        log.warning("[%s] %s: %s", ticker, type(e).__name__, e)
-        return None
-
-# ==============================================================
-# 📨  TELEGRAM — con rate limiting
-# ==============================================================
 def send_telegram(msg: str) -> None:
-    """Invia messaggio Telegram con rate limiting integrato."""
+    if CFG.telegram_token == "YOUR_TOKEN": return
     try:
-        resp = requests.post(
-            f"https://api.telegram.org/bot{CFG.telegram_token}/sendMessage",
-            data={"chat_id": CFG.telegram_chat_id, "text": msg, "parse_mode": "Markdown"},
-            timeout=5,
-        )
-        if not resp.ok:
-            log.warning("Telegram error %s: %s", resp.status_code, resp.text[:100])
-    except requests.RequestException as e:
-        log.warning("Telegram request failed: %s", e)
-    finally:
-        time.sleep(CFG.telegram_rate_limit_sec)   # FIX: rate limiting
+        requests.post(f"https://api.telegram.org/bot{CFG.telegram_token}/sendMessage",
+                     data={"chat_id": CFG.telegram_chat_id, "text": msg, "parse_mode": "Markdown"}, timeout=5)
+    except: pass
 
-# ==============================================================
-# 🚀  MAIN
-# ==============================================================
-def main() -> None:
-    active, status_msg = is_silver_window()
-    log.info(status_msg)
-
-    # ── Decommentare per test fuori orario ──
-    # active = True
-
-    if not active:
-        log.info("Scanner in standby. Attivo solo 15:00-15:45 NY.")
-        return
-
-    # Filtro macro SPY — blocca se mercato globalmente ribassista
-    if not _check_spy_trend():
-        msg = "⚠️ *Silver Scanner V5*\nScansione SOSPESA — SPY sotto MA8\nMercato in trend ribassista: falsi breakout probabili."
-        log.warning("Scansione sospesa: SPY bearish")
-        send_telegram(msg)
-        return
-
-    log.info("Avvio scansione V5 su %d titoli (soglia IFS: %d)...", len(TICKERS), CFG.min_ifs_threshold)
-
-    results: list[dict] = []
-    sector_counts: dict[str, int] = {}   # FIX: filtro correlazione settoriale
+def main():
+    print(f"🚀 Avvio Scanner V5 (Native Edition) - {len(TICKERS)} tickers")
+    results = []
+    sector_counts = {}
 
     with ThreadPoolExecutor(max_workers=CFG.max_threads) as executor:
         futures = {executor.submit(analyze_ticker, t): t for t in TICKERS}
-
-        for i, future in enumerate(as_completed(futures), 1):
+        for future in as_completed(futures):
             res = future.result()
+            if res:
+                sector = res["sector"]
+                if sector_counts.get(sector, 0) >= CFG.max_trades_per_sector:
+                    continue
+                
+                sector_counts[sector] = sector_counts.get(sector, 0) + 1
+                results.append(res)
+                
+                label = "💎 INSTITUTIONAL BUY" if res["ifs"] >= CFG.ifs_institutional_threshold else "🔥 SILVER FLOW"
+                msg = (
+                    f"{label}: *{res['ticker']}*\n"
+                    f"📊 *IFS:* `{res['ifs']}/12` | *RSI:* `{res['rsi']}`\n"
+                    f"📈 *VWAP:* `{res['vwap_pos']}` | *Vol x:* `{res['vol_ratio']}`\n"
+                    f"🏭 *Settore:* {sector}\n"
+                    f"✅ *ENTRY:* `${res['price']}` | 🎯 *TG:* `${res['tg']}`\n"
+                    f"🛑 *SL:* `${res['sl']}` | 🛡️ *SIZE:* `{res['size']} sh`\n"
+                    f"━━━━━━━━━━━━━━━━━━"
+                )
+                send_telegram(msg)
+                print(f"✅ Alert inviato: {res['ticker']} (IFS {res['ifs']})")
 
-            if i % 50 == 0:
-                log.info("Analizzati %d/%d titoli...", i, len(TICKERS))
-
-            if not res:
-                continue
-
-            # FIX: max N trade per settore
-            sector = res["sector"]
-            if sector_counts.get(sector, 0) >= CFG.max_trades_per_sector:
-                log.info("SKIP %s — settore %s già a quota %d", res["ticker"], sector, CFG.max_trades_per_sector)
-                continue
-
-            sector_counts[sector] = sector_counts.get(sector, 0) + 1
-            results.append(res)
-
-            # Messaggio Telegram
-            label = "💎 INSTITUTIONAL BUY" if res["ifs"] >= CFG.ifs_institutional_threshold else "🔥 SILVER FLOW"
-            exit_time = f"{CFG.timeout_exit_ny_hour}:{CFG.timeout_exit_ny_min:02d} NY"
-            msg = (
-                f"{label}: *{res['ticker']}*\n"
-                f"📊 *IFS:* `{res['ifs']}/{CFG.ifs_max}` | *RSI:* `{res['rsi']}`\n"
-                f"📈 *VWAP:* `{res['vwap_pos']}` | *Vol x:* `{res['vol_ratio']}`\n"
-                f"🏭 *Settore:* {sector}\n"
-                f"✅ *ENTRY:* `${res['price']}` | 🎯 *TG:* `${res['tg']}`\n"
-                f"🛑 *SL:* `${res['sl']}` | 🛡️ *SIZE:* `{res['size']} sh`\n"
-                f"⏳ *TIME EXIT:* {exit_time} (30-45 min max)\n"
-                f"━━━━━━━━━━━━━━━━━━"
-            )
-
-            log.info("ALERT: %s | IFS %d/%d | RSI %.1f | VWAP %s",
-                     res["ticker"], res["ifs"], CFG.ifs_max, res["rsi"], res["vwap_pos"])
-            send_telegram(msg)
-
-    log.info("Scansione completata. %d segnali validi trovati.", len(results))
-
-    # Riepilogo finale su Telegram
     if results:
-        summary = (f"📋 *Riepilogo Silver Window V5*\n"
-                   f"Segnali: {len(results)} | Settori coinvolti: {len(sector_counts)}\n"
-                   f"Top IFS: {max(r['ifs'] for r in results)}/{CFG.ifs_max}")
+        summary = f"📋 *Scansione Completata*\nTrovati {len(results)} segnali su {len(TICKERS)} titoli."
         send_telegram(summary)
-
 
 if __name__ == "__main__":
     main()
