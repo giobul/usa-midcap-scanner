@@ -18,33 +18,32 @@ from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ==============================================================
-# 🛠️  AUTO-INSTALLER (Versione Corretta per GitHub Actions)
+# 🛠️  AUTO-INSTALLER (Versione Ultra-Compatibile)
 # ==============================================================
 def _install(package: str) -> None:
     try:
+        # Tenta l'importazione per vedere se è già presente
         __import__(package.replace('-', '_'))
     except ImportError:
-        # Se è pandas_ta, usiamo il link diretto a GitHub per evitare errori di versione Python
-        if package == "pandas_ta":
-            pkg_to_install = "git+https://github.com/twopirllc/pandas-ta.git"
+        # Se è pandas_ta, forziamo una versione specifica compatibile con Python 3.11
+        # Invece di Git, usiamo PyPI che è più stabile in GitHub Actions
+        if "pandas_ta" in package:
+            # Installiamo la versione 0.3.14b0 che è la più stabile per Python 3.11
+            pkg_to_install = "pandas-ta==0.3.14b0"
         else:
             pkg_to_install = package
             
-        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg_to_install, "-q"])
+        print(f"📦 Installazione di {pkg_to_install} in corso...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg_to_install, "--upgrade", "-q"])
 
-# Installiamo i pacchetti base
-for _pkg in ["pandas", "numpy", "requests", "yfinance", "pytz"]:
+# Installiamo i pacchetti necessari
+for _pkg in ["pandas", "numpy", "requests", "yfinance", "pytz", "pandas-ta"]:
     _install(_pkg)
 
-# Installazione specifica per pandas_ta
-try:
-    import pandas_ta as ta
-except ImportError:
-    _install("pandas_ta")
-    import pandas_ta as ta
-
+# Importiamo dopo l'installazione
 import yfinance as yf
 import pandas as pd
+import pandas_ta as ta
 import numpy as np
 import requests
 import pytz
