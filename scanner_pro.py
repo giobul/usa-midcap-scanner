@@ -10,7 +10,7 @@ from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ==============================================================
-# 🛠️ AUTO-INSTALLER (Solo pacchetti ultra-stabili)
+# 🛠️ AUTO-INSTALLER (Librerie essenziali)
 # ==============================================================
 def _install(package: str) -> None:
     try:
@@ -30,7 +30,7 @@ import pytz
 warnings.filterwarnings("ignore")
 
 # ==============================================================
-# 📈 FUNZIONI TECNICHE NATIVE (Sostituiscono pandas_ta)
+# 📈 FUNZIONI TECNICHE NATIVE
 # ==============================================================
 def calculate_rsi(series, period=14):
     delta = series.diff()
@@ -53,7 +53,7 @@ def calculate_vwap(df):
     return (tp * v).cumsum() / v.cumsum()
 
 # ==============================================================
-# 🕒 CONTROLLO ORARIO (Silver Window)
+# 🕒 CONTROLLO ORARIO (Silver Window: 15:15 - 16:00 NY)
 # ==============================================================
 def is_silver_window() -> tuple[bool, str]:
     tz_ny = pytz.timezone("America/New_York")
@@ -78,12 +78,13 @@ class ScannerConfig:
     telegram_chat_id: str = field(default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID", "YOUR_ID"))
     total_equity: float   = 100000.0
     risk_per_trade_pct: float = 0.01
-    max_threads: int      = 15
+    max_threads: int      = 20
     min_ifs_threshold: int = 8
+    ifs_max: int          = 12    # FIX 3: Cap punteggio coerenza
     rr_ratio: float       = 1.5
     max_trades_per_sector: int = 2
-    ifs_max: int = 12
     ifs_institutional_threshold: int = 11
+    trap_block_threshold: int = 2 # FIX 2: Soglia penalità per scarto immediato
 
 CFG = ScannerConfig()
 
@@ -160,7 +161,7 @@ SECTOR_MAP = {
 TICKERS = list(SECTOR_MAP.keys())
 
 # ==============================================================
-# 🧠 CORE ENGINE
+# 🧠 CORE ENGINE V6 FIXED
 # ==============================================================
 def analyze_ticker(ticker: str) -> Optional[dict]:
     try:
@@ -170,7 +171,6 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
         
         df.columns = [c.lower() for c in df.columns]
         
-        # Indicatori Nativi
         price = df['close'].iloc[-1]
         df['rsi'] = calculate_rsi(df['close'])
         df['atr'] = calculate_atr(df)
@@ -180,24 +180,38 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
         atr = df['atr'].iloc[-1]
         vwap = df['vwap'].iloc[-1]
         
-        # Punteggio IFS
+        # --- PUNTEGGIO IFS ---
         score = 0
         if price > vwap: score += 3
         if 60 < rsi < 75: score += 2
         elif rsi >= 75: score += 1
         elif rsi < 50: score -= 5
         
-        # Volume Ratio (RVOL)
         curr_vol = df['volume'].iloc[-1]
         avg_vol = df['volume'].tail(20).mean()
         vol_ratio = curr_vol / avg_vol if avg_vol > 0 else 0
-        
         if vol_ratio > 1.5: score += 2
         if vol_ratio > 2.5: score += 4
         
-        # Breakout Resistenza 20 candele
         res_20 = df['high'].rolling(20).max().iloc[-2]
         if price > res_20: score += 3
+
+        # --- FIX ANTI-BULL TRAP (1 & 2) ---
+        trap_penalty = 0
+        for i in range(-4, -1): # FIX 1: Analisi solo candele chiuse
+            h, l, c = df['high'].iloc[i], df['low'].iloc[i], df['close'].iloc[i]
+            c_range = h - l
+            if c_range > 0:
+                rel_close = (c - l) / c_range
+                if rel_close < 0.4: trap_penalty += 2
+                elif rel_close < 0.6: trap_penalty += 1
+
+        # FIX 2: Hard Scarto
+        if trap_penalty >= CFG.trap_block_threshold:
+            return None
+
+        score -= trap_penalty
+        score = min(score, CFG.ifs_max) # FIX 3: Cap coerenza
 
         if score < CFG.min_ifs_threshold: return None
 
@@ -215,6 +229,9 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
         }
     except: return None
 
+# ==============================================================
+# 📡 TELEGRAM & MAIN
+# ==============================================================
 def send_telegram(msg: str) -> None:
     if CFG.telegram_token == "YOUR_TOKEN": return
     try:
@@ -223,16 +240,11 @@ def send_telegram(msg: str) -> None:
     except: pass
 
 def main():
-    # 1. Controllo Finestra Operativa
     active, status_msg = is_silver_window()
     print(status_msg)
-    
-    # Se vuoi testare ora anche se il mercato è chiuso, commenta le due righe sotto:
-    if not active:
-        return
+    if not active: return
 
-    # 2. Avvio Scansione
-    print(f"🚀 Analisi istituzionale su {len(TICKERS)} titoli...")
+    print(f"🚀 Scanner V6 Fixed avviato su {len(TICKERS)} titoli...")
     results = []
     sector_counts = {}
 
@@ -242,8 +254,7 @@ def main():
             res = future.result()
             if res:
                 sector = res["sector"]
-                if sector_counts.get(sector, 0) >= CFG.max_trades_per_sector:
-                    continue
+                if sector_counts.get(sector, 0) >= CFG.max_trades_per_sector: continue
                 
                 sector_counts[sector] = sector_counts.get(sector, 0) + 1
                 results.append(res)
@@ -262,8 +273,7 @@ def main():
                 print(f"✅ ALERT: {res['ticker']} (IFS {res['ifs']})")
 
     if results:
-        summary = f"📋 *Fine Sessione Silver Window*\nInviati {len(results)} segnali validi."
-        send_telegram(summary)
+        send_telegram(f"📋 *Fine Sessione Silver Window*\nInviati {len(results)} segnali filtrati Anti-Trap.")
 
 if __name__ == "__main__":
     main()
