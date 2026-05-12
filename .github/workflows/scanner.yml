@@ -1,34 +1,25 @@
 name: AI Stock Scanner
-
 on:
   workflow_dispatch:
   schedule:
-    # '45/5' parte al minuto 45 e ripete ogni 5 (45, 50, 55)
-    # '14' è l'ora UTC delle 15:00 ITA. '15-20' copre fino alle 21:00 UTC (22:00 ITA)
-    - cron: '45/5 14 * * 1-5'
-    - cron: '*/5 15-20 * * 1-5'
-
+    - cron: '15,20,25,30,35,40,45,50,55 19 * * 1-5'
+    - cron: '0 20 * * 1-5'
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install pandas==2.2.2 yfinance==0.2.54 requests lxml html5lib beautifulsoup4
-
       - name: Run Scanner
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        # MODIFICA: aggiunto -u per lo streaming dei log in tempo reale
         run: python -u scanner_pro.py
