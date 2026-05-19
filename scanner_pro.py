@@ -73,12 +73,13 @@ def is_silver_window() -> tuple[bool, str]:
         return False, "Weekend — Mercato chiuso."
 
     current_min  = now_ny.hour * 60 + now_ny.minute
-    window_start = 15 * 60 + 15   # 15:15 NY
-    window_end   = 16 * 60        # 16:00 NY
+    # 🕒 Modificato: partiamo alle 15:30 reali (che corrispondono alle 15:15 sui grafici di Yahoo)
+    window_start = 15 * 60 + 30   # 15:30 NY Reali
+    window_end   = 16 * 15        # 16:15 NY Reali (per catturare i dati fino alla chiusura delle 16:00)
 
     if window_start <= current_min <= window_end:
-        return True,  f"✅ SILVER WINDOW ATTIVA (NY: {now_ny.strftime('%H:%M')})"
-    return False, f"⏳ Standby — NY: {now_ny.strftime('%H:%M')}. Apertura scanner: 15:15 NY."
+        return True,  f"✅ SILVER WINDOW ATTIVA (Dati sincronizzati con ritardo Yahoo)"
+    return False, f"⏳ Standby — In attesa della sincronizzazione dati (Finestra reale: 15:30 - 16:15 NY)."
 
 
 # ==============================================================
