@@ -28,13 +28,13 @@ import pytz
 warnings.filterwarnings("ignore")
 
 # ==============================================================
-# 📈 FUNZIONI TECNICHE (Pure e Veloci)
+# 📈 FUNZIONI TECNICHE
 # ==============================================================
 def calculate_rsi(series: pd.Series, period: int = 14) -> pd.Series:
     delta = series.diff()
-    gain = delta.where(delta > 0, 0).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    rs = gain / loss
+    gain  = delta.where(delta > 0, 0).rolling(window=period).mean()
+    loss  = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs    = gain / loss
     return 100 - (100 / (1 + rs))
 
 
@@ -47,13 +47,13 @@ def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
 
 
 def calculate_vwap_intraday(df: pd.DataFrame) -> pd.Series:
-    df = df.copy()
+    df          = df.copy()
     df['_date'] = df.index.date
     df['_tp']   = (df['high'] + df['low'] + df['close']) / 3
 
     vwap_values = pd.Series(index=df.index, dtype=float)
 
-    for session_date, group in df.groupby('_date'):
+    for _, group in df.groupby('_date'):
         tp_v   = group['_tp'] * group['volume']
         cum_tv = tp_v.cumsum()
         cum_v  = group['volume'].cumsum()
@@ -82,7 +82,7 @@ def is_silver_window() -> tuple[bool, str]:
 
 
 # ==============================================================
-# ⚙️ CONFIGURAZIONE PERSONALIZZATA CON I TUOI DATI
+# ⚙️ CONFIGURAZIONE
 # ==============================================================
 @dataclass
 class ScannerConfig:
@@ -96,12 +96,13 @@ class ScannerConfig:
     rr_ratio:                    float = 1.5
     max_trades_per_sector:       int   = 2
     ifs_institutional_threshold: int   = 11
+    macro_rsi_block:             float = 45.0
 
 CFG = ScannerConfig()
 
 
 # ==============================================================
-# 📋 WATCHLIST INTEGRALE (242 Tickers)
+# 📋 WATCHLIST (242 Tickers)
 # ==============================================================
 SECTOR_MAP = {
     "AAPL": "Tech",  "MSFT": "Tech",  "GOOGL": "Tech",  "META": "Tech",
@@ -174,44 +175,56 @@ TICKERS = list(SECTOR_MAP.keys())
 
 
 # ==============================================================
-# 🧠 CORE ENGINE V7.3 PRO
+# 🌍 FILTRO MACRO S&P 500 (Ottimizzato)
 # ==============================================================
 def check_market_trend() -> bool:
     """
-    Verifica lo stato dell'indice macro S&P 500 (^SPX).
-    Se l'indice è sotto il suo VWAP intraday E l'RSI scende sotto 48,
-    blocca lo scanner per evitare di comprare in fase di liquidazione panic-selling.
+    Verifica lo stato macro tramite SPY. 
+    Usa period='5d' per permettere all'RSI di stabilizzarsi matematicamente.
     """
     try:
-        spy = yf.Ticker("^SPX")
-        df_spy = spy.history(period="2d", interval="15m")
+        spy = yf.Ticker("SPY")
+        # 💡 TRICK V7.4: Chiediamo 5 giorni invece di 2 per dare abbastanza campioni all'RSI
+        df_spy = spy.history(period="5d", interval="15m")
         if df_spy.empty:
             return True
-            
+
         df_spy.columns = [c.lower() for c in df_spy.columns]
+
         if df_spy.index.tz is not None:
             df_spy.index = df_spy.index.tz_convert("America/New_York").tz_localize(None)
-            
-        df_spy = df_spy.iloc[:-1] 
-        if len(df_spy) < 15:
+
+        df_spy = df_spy.iloc[:-1] # Scarta la candela live incompleta
+        if len(df_spy) < 20:
             return True
 
-        spy_vwap = calculate_vwap_intraday(df_spy).iloc[-1]
+        spy_vwap  = calculate_vwap_intraday(df_spy).iloc[-1]
         spy_price = df_spy['close'].iloc[-1]
-        spy_rsi = calculate_rsi(df_spy['close']).iloc[-1]
-        
-        if spy_price < spy_vwap and spy_rsi < 48:
+        spy_rsi   = calculate_rsi(df_spy['close']).iloc[-1]
+
+        if pd.isna(spy_vwap) or pd.isna(spy_rsi):
+            return True
+
+        if spy_price < spy_vwap and spy_rsi < CFG.macro_rsi_block:
+            print(f"⚠️ MACRO ALERT — SPY sotto VWAP (${spy_price:.2f} < ${spy_vwap:.2f}) e RSI={spy_rsi:.1f}. Scanner inibito.")
             return False
+
+        print(f"✅ Macro OK — SPY: ${spy_price:.2f} | VWAP: ${spy_vwap:.2f} | RSI: {spy_rsi:.1f}")
         return True
+
     except Exception:
-        return True
+        return True # Fail-open in caso di errore API
 
 
+# ==============================================================
+# 🧠 CORE ENGINE V7.4
+# ==============================================================
 def analyze_ticker(ticker: str) -> Optional[dict]:
     try:
         stock = yf.Ticker(ticker)
-        df = stock.history(period="7d", interval="15m")
-        if df.empty or len(df) < 30:
+        # 💡 TRICK V7.4: Estendiamo a 10d per rendere i rollover di breakout e ATR stabili
+        df = stock.history(period="10d", interval="15m")
+        if df.empty or len(df) < 35:
             return None
 
         df.columns = [c.lower() for c in df.columns]
@@ -220,7 +233,7 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
             df.index = df.index.tz_convert("America/New_York").tz_localize(None)
 
         df = df.iloc[:-1]
-        if len(df) < 30:
+        if len(df) < 35:
             return None
 
         price = df['close'].iloc[-1]
@@ -236,7 +249,9 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
         if pd.isna(rsi) or pd.isna(atr) or pd.isna(vwap):
             return None
 
+        # ── PUNTEGGIO IFS ─────────────────────────────────────────────────────
         score = 0
+
         if price > vwap:
             score += 3
 
@@ -247,8 +262,8 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
         elif rsi < 50:
             score -= 5
 
-        curr_vol = df['volume'].iloc[-1]
-        avg_vol  = df['volume'].tail(20).mean()
+        curr_vol  = df['volume'].iloc[-1]
+        avg_vol   = df['volume'].tail(20).mean()
         vol_ratio = curr_vol / avg_vol if avg_vol > 0 else 0
         if vol_ratio > 1.5:
             score += 2
@@ -259,6 +274,7 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
         if price >= res_20:
             score += 3
 
+        # ── ANTI-BULL TRAP ────────────────────────────────────────────────────
         trap_penalty = 0
         for i in range(-4, 0):
             h, l, c = df['high'].iloc[i], df['low'].iloc[i], df['close'].iloc[i]
@@ -276,6 +292,7 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
         if score < CFG.min_ifs_threshold:
             return None
 
+        # ── MONEY MANAGEMENT ──────────────────────────────────────────────────
         sl          = round(price - atr * 1.5, 2)
         tg          = round(price + (price - sl) * CFG.rr_ratio, 2)
         risk_amount = CFG.total_equity * CFG.risk_per_trade_pct
@@ -298,7 +315,7 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
 
 
 # ==============================================================
-# 📡 TELEGRAM BROADCASTER
+# 📡 TELEGRAM
 # ==============================================================
 def send_telegram(msg: str) -> None:
     try:
@@ -312,7 +329,7 @@ def send_telegram(msg: str) -> None:
 
 
 # ==============================================================
-# 🚀 EXECUTION MAIN ENGINE
+# 🚀 MAIN
 # ==============================================================
 def main() -> None:
     active, status_msg = is_silver_window()
@@ -320,16 +337,18 @@ def main() -> None:
     if not active:
         return
 
-    # 🚨 FILTRO MACRO MERCATO PRIMA DI PARTIRE
-    print("🔍 Analisi del trend macro S&P 500...")
+    print("🔍 Analisi trend macro S&P 500 (SPY)...")
     if not check_market_trend():
-        market_warning = "⚠️ *SCANNER SOSPESO* — L'indice S&P 500 è in territorio fortemente ribassista (sotto VWAP / RSI debole). Operatività Long congelata per evitare Bull Trap di mercato."
-        send_telegram(market_warning)
-        print(f"❌ {market_warning}")
+        warning = (
+            "⚠️ *SCANNER SOSPESO*\n"
+            "SPY sotto VWAP con RSI debole.\n"
+            "Operatività Long congelata — rischio Bull Trap di mercato."
+        )
+        send_telegram(warning)
         return
 
-    print(f"🚀 Scanner V7.3 PRO avviato su {len(TICKERS)} titoli...")
-    results: list[dict] = []
+    print(f"🚀 Scanner V7.4 avviato su {len(TICKERS)} titoli...")
+    results: list[dict]           = []
     sector_counts: dict[str, int] = {}
 
     with ThreadPoolExecutor(max_workers=CFG.max_threads) as executor:
@@ -366,8 +385,10 @@ def main() -> None:
     if results:
         send_telegram(
             f"📋 *Fine Sessione Silver Window*\n"
-            f"Inviati {len(results)} segnali stabili filtrati sul macro-trend (V7.3 Pro)."
+            f"Inviati {len(results)} segnali — Scanner V7.4."
         )
+    else:
+        send_telegram("📋 *Fine Sessione* — Nessun segnale sopra soglia oggi.")
 
 
 if __name__ == "__main__":
