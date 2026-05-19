@@ -86,7 +86,6 @@ def is_silver_window() -> tuple[bool, str]:
 # ==============================================================
 @dataclass
 class ScannerConfig:
-    # Inseriti i tuoi identificativi reali estratti dai dati iniziali
     telegram_token:              str   = field(default_factory=lambda: os.getenv("TELEGRAM_TOKEN",   "8184561081:AAEW9iL5A71fF2p8y6Nl7Ew8_x_D-wY_k-I"))
     telegram_chat_id:            str   = field(default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID", "-1002476594770"))
     total_equity:                float = 100_000.0
@@ -175,8 +174,39 @@ TICKERS = list(SECTOR_MAP.keys())
 
 
 # ==============================================================
-# 🧠 CORE ENGINE V7.2 PRO
+# 🧠 CORE ENGINE V7.3 PRO
 # ==============================================================
+def check_market_trend() -> bool:
+    """
+    Verifica lo stato dell'indice macro S&P 500 (^SPX).
+    Se l'indice è sotto il suo VWAP intraday E l'RSI scende sotto 48,
+    blocca lo scanner per evitare di comprare in fase di liquidazione panic-selling.
+    """
+    try:
+        spy = yf.Ticker("^SPX")
+        df_spy = spy.history(period="2d", interval="15m")
+        if df_spy.empty:
+            return True
+            
+        df_spy.columns = [c.lower() for c in df_spy.columns]
+        if df_spy.index.tz is not None:
+            df_spy.index = df_spy.index.tz_convert("America/New_York").tz_localize(None)
+            
+        df_spy = df_spy.iloc[:-1] 
+        if len(df_spy) < 15:
+            return True
+
+        spy_vwap = calculate_vwap_intraday(df_spy).iloc[-1]
+        spy_price = df_spy['close'].iloc[-1]
+        spy_rsi = calculate_rsi(df_spy['close']).iloc[-1]
+        
+        if spy_price < spy_vwap and spy_rsi < 48:
+            return False
+        return True
+    except Exception:
+        return True
+
+
 def analyze_ticker(ticker: str) -> Optional[dict]:
     try:
         stock = yf.Ticker(ticker)
@@ -189,7 +219,6 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
         if df.index.tz is not None:
             df.index = df.index.tz_convert("America/New_York").tz_localize(None)
 
-        # Escludiamo la candela live instabile a monte
         df = df.iloc[:-1]
         if len(df) < 30:
             return None
@@ -207,7 +236,6 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
         if pd.isna(rsi) or pd.isna(atr) or pd.isna(vwap):
             return None
 
-        # Punteggio IFS
         score = 0
         if price > vwap:
             score += 3
@@ -292,7 +320,15 @@ def main() -> None:
     if not active:
         return
 
-    print(f"🚀 Scanner V7.2 PRO avviato su {len(TICKERS)} titoli...")
+    # 🚨 FILTRO MACRO MERCATO PRIMA DI PARTIRE
+    print("🔍 Analisi del trend macro S&P 500...")
+    if not check_market_trend():
+        market_warning = "⚠️ *SCANNER SOSPESO* — L'indice S&P 500 è in territorio fortemente ribassista (sotto VWAP / RSI debole). Operatività Long congelata per evitare Bull Trap di mercato."
+        send_telegram(market_warning)
+        print(f"❌ {market_warning}")
+        return
+
+    print(f"🚀 Scanner V7.3 PRO avviato su {len(TICKERS)} titoli...")
     results: list[dict] = []
     sector_counts: dict[str, int] = {}
 
@@ -330,7 +366,7 @@ def main() -> None:
     if results:
         send_telegram(
             f"📋 *Fine Sessione Silver Window*\n"
-            f"Inviati {len(results)} segnali filtrati stabili (V7.2 Pro)."
+            f"Inviati {len(results)} segnali stabili filtrati sul macro-trend (V7.3 Pro)."
         )
 
 
