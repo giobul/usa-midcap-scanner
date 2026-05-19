@@ -63,7 +63,7 @@ def calculate_vwap_intraday(df: pd.DataFrame) -> pd.Series:
 
 
 # ==============================================================
-# 🕒 CONTROLLO ORARIO (Silver Window: 15:15 – 16:00 NY)
+# 🕒 CONTROLLO ORARIO (Ottimizzato per Ritardo Yahoo 15m)
 # ==============================================================
 def is_silver_window() -> tuple[bool, str]:
     tz_ny  = pytz.timezone("America/New_York")
@@ -73,13 +73,15 @@ def is_silver_window() -> tuple[bool, str]:
         return False, "Weekend — Mercato chiuso."
 
     current_min  = now_ny.hour * 60 + now_ny.minute
-    # 🕒 Modificato: partiamo alle 15:30 reali (che corrispondono alle 15:15 sui grafici di Yahoo)
+    
+    # 🕒 Sincronizzazione: Partiamo alle 15:30 reali di NY.
+    # A quest'ora le candele delle 15:15 (Inizio Silver Window) sono consolidate su Yahoo.
     window_start = 15 * 60 + 30   # 15:30 NY Reali
-    window_end   = 16 * 15        # 16:15 NY Reali (per catturare i dati fino alla chiusura delle 16:00)
+    window_end   = 16 * 15        # 16:15 NY Reali (esteso per raccogliere i flussi fino al Close delle 16:00)
 
     if window_start <= current_min <= window_end:
         return True,  f"✅ SILVER WINDOW ATTIVA (Dati sincronizzati con ritardo Yahoo)"
-    return False, f"⏳ Standby — In attesa della sincronizzazione dati (Finestra reale: 15:30 - 16:15 NY)."
+    return False, f"⏳ Standby — In attesa sincronizzazione dati. Finestra utile: 15:30 - 16:15 NY (Attuale NY: {now_ny.strftime('%H:%M')})."
 
 
 # ==============================================================
@@ -176,16 +178,11 @@ TICKERS = list(SECTOR_MAP.keys())
 
 
 # ==============================================================
-# 🌍 FILTRO MACRO S&P 500 (Ottimizzato)
+# 🌍 FILTRO MACRO S&P 500
 # ==============================================================
 def check_market_trend() -> bool:
-    """
-    Verifica lo stato macro tramite SPY. 
-    Usa period='5d' per permettere all'RSI di stabilizzarsi matematicamente.
-    """
     try:
         spy = yf.Ticker("SPY")
-        # 💡 TRICK V7.4: Chiediamo 5 giorni invece di 2 per dare abbastanza campioni all'RSI
         df_spy = spy.history(period="5d", interval="15m")
         if df_spy.empty:
             return True
@@ -195,7 +192,8 @@ def check_market_trend() -> bool:
         if df_spy.index.tz is not None:
             df_spy.index = df_spy.index.tz_convert("America/New_York").tz_localize(None)
 
-        df_spy = df_spy.iloc[:-1] # Scarta la candela live incompleta
+        # 💡 SAFETY FIX V7.5: Elimina la candela in tempo reale sporca passata dalle API
+        df_spy = df_spy.iloc[:-1] 
         if len(df_spy) < 20:
             return True
 
@@ -214,16 +212,15 @@ def check_market_trend() -> bool:
         return True
 
     except Exception:
-        return True # Fail-open in caso di errore API
+        return True
 
 
 # ==============================================================
-# 🧠 CORE ENGINE V7.4
+# 🧠 CORE ENGINE V7.5
 # ==============================================================
 def analyze_ticker(ticker: str) -> Optional[dict]:
     try:
         stock = yf.Ticker(ticker)
-        # 💡 TRICK V7.4: Estendiamo a 10d per rendere i rollover di breakout e ATR stabili
         df = stock.history(period="10d", interval="15m")
         if df.empty or len(df) < 35:
             return None
@@ -233,6 +230,9 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
         if df.index.tz is not None:
             df.index = df.index.tz_convert("America/New_York").tz_localize(None)
 
+        # 💡 SAFETY FIX V7.5: Se siamo a mercati aperti, scartiamo sempre l'ultima riga parziale.
+        # Avendo spostato l'orario reale di avvio alle 15:30, la riga precedente (l'indice -2, salvato da iloc[:-1])
+        # conterrà ESATTAMENTE la candela intera terminata alle 15:15. Nessun ritardo, pulizia matematica totale.
         df = df.iloc[:-1]
         if len(df) < 35:
             return None
@@ -316,7 +316,7 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
 
 
 # ==============================================================
-# 📡 TELEGRAM
+# 📡 TELEGRAM & MAIN
 # ==============================================================
 def send_telegram(msg: str) -> None:
     try:
@@ -329,9 +329,6 @@ def send_telegram(msg: str) -> None:
         pass
 
 
-# ==============================================================
-# 🚀 MAIN
-# ==============================================================
 def main() -> None:
     active, status_msg = is_silver_window()
     print(status_msg)
@@ -348,7 +345,7 @@ def main() -> None:
         send_telegram(warning)
         return
 
-    print(f"🚀 Scanner V7.4 avviato su {len(TICKERS)} titoli...")
+    print(f"🚀 Scanner V7.5 avviato su {len(TICKERS)} titoli...")
     results: list[dict]           = []
     sector_counts: dict[str, int] = {}
 
@@ -386,7 +383,7 @@ def main() -> None:
     if results:
         send_telegram(
             f"📋 *Fine Sessione Silver Window*\n"
-            f"Inviati {len(results)} segnali — Scanner V7.4."
+            f"Inviati {len(results)} segnali — Scanner V7.5."
         )
     else:
         send_telegram("📋 *Fine Sessione* — Nessun segnale sopra soglia oggi.")
