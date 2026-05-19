@@ -1,0 +1,22 @@
+name: Test Immediato Yahoo Finance
+on:
+  workflow_dispatch: # Questo abilita il bottone per il lancio manuale
+
+jobs:
+  run-test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout del codice
+      uses: actions/checkout@v4
+
+    - name: Configura Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Installa le librerie
+      run: |
+        pip install yfinance pandas
+
+    - name: Esegui lo script di test
+      run: python test_yahoo.py
