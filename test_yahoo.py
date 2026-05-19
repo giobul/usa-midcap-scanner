@@ -1,35 +1,27 @@
-name: Test Immediato Yahoo Finance
-on:
-  workflow_dispatch:
+import yfinance as yf
+import pandas as pd
 
-jobs:
-  run-test:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout del codice
-      uses: actions/checkout@v4
+def test_puro():
+    ticker = "SPY"
+    print(f"🔄 Tentativo di download storico 15m per {ticker}...")
+    
+    try:
+        df = yf.download(ticker, period="5d", interval="15m", progress=False)
+        
+        if df.empty:
+            print("❌ Errore: Il DataFrame è vuoto. Yahoo non sta rispondendo.")
+            return
+            
+        print("✅ Connessione riuscita! Dati ricevuti.")
+        print(f"📊 Numero di candele caricate: {len(df)}")
+        print("\n--- Ultime 3 candele disponibili nel database di Yahoo: ---")
+        print(df[['Open', 'High', 'Low', 'Close', 'Volume']].tail(3))
+        
+        df_consolidato = df.iloc[:-1]
+        print(f"\n✂️ Taglio candela live applicato. Righe rimanenti per l'analisi: {len(df_consolidato)}")
+        
+    except Exception as e:
+        print(f"💥 Il codice è andato in crash! Errore tecnico: {e}")
 
-    - name: Configura Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-
-    - name: Installa le librerie
-      run: |
-        pip install yfinance pandas
-
-    - name: Mostra dove sono i file (Debug)
-      run: |
-        echo "=== Dove mi trovo ==="
-        pwd
-        echo "=== Contenuto della cartella ==="
-        ls -la
-
-    - name: Esegui lo script di test
-      run: |
-        if [ -f "test_yahoo.py" ]; then
-          python test_yahoo.py
-        else
-          echo "❌ Errore: test_yahoo.py non è nella cartella principale! Controllo nelle sotto-cartelle..."
-          find . -name "test_yahoo.py" -exec python {} \;
-        fi
+if __name__ == "__main__":
+    test_puro()
