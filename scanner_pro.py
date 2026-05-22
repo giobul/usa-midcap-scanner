@@ -66,22 +66,20 @@ def calculate_vwap_intraday(df: pd.DataFrame) -> pd.Series:
 # 🕒 CONTROLLO ORARIO (Ottimizzato per Ritardo Yahoo 15m)
 # ==============================================================
 def is_silver_window() -> tuple[bool, str]:
-    tz_ny  = pytz.timezone("America/New_York")
+    tz_ny = pytz.timezone("America/New_York")
     now_ny = datetime.now(tz_ny)
-
+    
     if now_ny.weekday() >= 5:
         return False, "Weekend — Mercato chiuso."
-
-    current_min  = now_ny.hour * 60 + now_ny.minute
     
-    # 🕒 Sincronizzazione: Partiamo alle 15:30 reali di NY.
-    # A quest'ora le candele delle 15:15 (Inizio Silver Window) sono consolidate su Yahoo.
-    window_start = 15 * 60 + 30   # 15:30 NY Reali
-    window_end   = 16 * 15        # 16:15 NY Reali (esteso per raccogliere i flussi fino al Close delle 16:00)
-
+    current_min = now_ny.hour * 60 + now_ny.minute
+    window_start = 15 * 60 + 15  # 15:15 NY (21:15 ITA)
+    window_end = 16 * 60         # 16:00 NY (22:00 ITA) - Chiusura mercato
+    
     if window_start <= current_min <= window_end:
-        return True,  f"✅ SILVER WINDOW ATTIVA (Dati sincronizzati con ritardo Yahoo)"
-    return False, f"⏳ Standby — In attesa sincronizzazione dati. Finestra utile: 15:30 - 16:15 NY (Attuale NY: {now_ny.strftime('%H:%M')})."
+        return True, f"✅ SILVER WINDOW ATTIVA (NY: {now_ny.strftime('%H:%M')})"
+        
+    return False, f"⏳ Standby — NY: {now_ny.strftime('%H:%M')}. Finestra utile: 15:15 - 16:00 NY."
 
 
 # ==============================================================
