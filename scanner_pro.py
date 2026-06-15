@@ -103,7 +103,7 @@ CFG = ScannerConfig()
 
 
 # ==============================================================
-# 📋 WATCHLIST (242 Tickers)
+# 📋 WATCHLIST COMPLETISSIMA (242 Tickers)
 # ==============================================================
 SECTOR_MAP = {
     "AAPL": "Tech",  "MSFT": "Tech",  "GOOGL": "Tech",  "META": "Tech",
@@ -176,12 +176,13 @@ TICKERS = list(SECTOR_MAP.keys())
 
 
 # ==============================================================
-# 🌍 FILTRO MACRO S&P 500
+# 🌍 FILTRO MACRO S&P 500 (FIXED V7.6)
 # ==============================================================
 def check_market_trend() -> bool:
     try:
         spy = yf.Ticker("SPY")
-        df_spy = spy.history(period="5d", interval="15m")
+        # 💡 CORREZIONE V7.6: Scarichiamo esattamente 1 giorno per avere il VWAP intraday reale e pulito
+        df_spy = spy.history(period="1d", interval="15m")
         if df_spy.empty:
             return True
 
@@ -190,9 +191,7 @@ def check_market_trend() -> bool:
         if df_spy.index.tz is not None:
             df_spy.index = df_spy.index.tz_convert("America/New_York").tz_localize(None)
 
-        # 💡 SAFETY FIX V7.5: Elimina la candela in tempo reale sporca passata dalle API
-        df_spy = df_spy.iloc[:-1] 
-        if len(df_spy) < 20:
+        if len(df_spy) < 5:
             return True
 
         spy_vwap  = calculate_vwap_intraday(df_spy).iloc[-1]
@@ -214,7 +213,7 @@ def check_market_trend() -> bool:
 
 
 # ==============================================================
-# 🧠 CORE ENGINE V7.5
+# 🧠 CORE ENGINE V7.6
 # ==============================================================
 def analyze_ticker(ticker: str) -> Optional[dict]:
     try:
@@ -228,10 +227,8 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
         if df.index.tz is not None:
             df.index = df.index.tz_convert("America/New_York").tz_localize(None)
 
-        # 💡 SAFETY FIX V7.5: Se siamo a mercati aperti, scartiamo sempre l'ultima riga parziale.
-        # Avendo spostato l'orario reale di avvio alle 15:30, la riga precedente (l'indice -2, salvato da iloc[:-1])
-        # conterrà ESATTAMENTE la candela intera terminata alle 15:15. Nessun ritardo, pulizia matematica totale.
-        df = df.iloc[:-1]
+        # 💡 CORREZIONE V7.6: Non tagliamo la candela se siamo vicini alla chiusura
+        # per non perdere gli impulsi volumetrici dell'ultimo minuto.
         if len(df) < 35:
             return None
 
@@ -343,7 +340,7 @@ def main() -> None:
         send_telegram(warning)
         return
 
-    print(f"🚀 Scanner V7.5 avviato su {len(TICKERS)} titoli...")
+    print(f"🚀 Scanner V7.6 avviato su {len(TICKERS)} titoli...")
     results: list[dict]           = []
     sector_counts: dict[str, int] = {}
 
@@ -381,7 +378,7 @@ def main() -> None:
     if results:
         send_telegram(
             f"📋 *Fine Sessione Silver Window*\n"
-            f"Inviati {len(results)} segnali — Scanner V7.5."
+            f"Inviati {len(results)} segnali — Scanner V7.6."
         )
     else:
         send_telegram("📋 *Fine Sessione* — Nessun segnale sopra soglia oggi.")
