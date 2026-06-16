@@ -63,7 +63,7 @@ def calculate_vwap_intraday(df: pd.DataFrame) -> pd.Series:
 
 
 # ==============================================================
-# 🕒 CONTROLLO ORARIO (Ottimizzato per Ritardo Yahoo 15m)
+# 🕒 CONTROLLO ORARIO
 # ==============================================================
 def is_silver_window() -> tuple[bool, str]:
     tz_ny = pytz.timezone("America/New_York")
@@ -73,8 +73,8 @@ def is_silver_window() -> tuple[bool, str]:
         return False, "Weekend — Mercato chiuso."
     
     current_min = now_ny.hour * 60 + now_ny.minute
-    window_start = 15 * 60 + 15  # 15:15 NY (21:15 ITA)
-    window_end = 16 * 60         # 16:00 NY (22:00 ITA) - Chiusura mercato
+    window_start = 15 * 60 + 15  # 15:15 NY
+    window_end = 16 * 60         # 16:00 NY
     
     if window_start <= current_min <= window_end:
         return True, f"✅ SILVER WINDOW ATTIVA (NY: {now_ny.strftime('%H:%M')})"
@@ -87,8 +87,9 @@ def is_silver_window() -> tuple[bool, str]:
 # ==============================================================
 @dataclass
 class ScannerConfig:
-    telegram_token:              str   = field(default_factory=lambda: os.getenv("TELEGRAM_TOKEN",   "8184561081:AAEW9iL5A71fF2p8y6Nl7Ew8_x_D-wY_k-I"))
-    telegram_chat_id:            str   = field(default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID", "-1002476594770"))
+    # Configura le tue credenziali come variabili d'ambiente o sostituiscile qui in locale
+    telegram_token:              str   = field(default_factory=lambda: os.getenv("TELEGRAM_TOKEN", "VALORE_TOKEN"))
+    telegram_chat_id:            str   = field(default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID", "VALORE_CHAT_ID"))
     total_equity:                float = 100_000.0
     risk_per_trade_pct:          float = 0.01
     max_threads:                 int   = 20
@@ -170,20 +171,19 @@ SECTOR_MAP = {
     "RIVN": "EV",       "LCID":"EV",       "CHPT":"EV",      "QS":  "EV",
     "PLUG": "CleanEnergy","RUN":"CleanEnergy","SEDG":"CleanEnergy",
     "ENPH": "CleanEnergy","BLNK":"CleanEnergy","RBLX":"Gaming",
-    "DKNG": "Gaming",   "RKLB":"Aerospace","OPEN":"Tech",    "IONQ":"Tech",
+    "DKNG": "Gaming",   "RKLB":"Aerospace","OPEN":"Tech",     "IONQ":"Tech",
 }
 TICKERS = list(SECTOR_MAP.keys())
 
 
 # ==============================================================
-# 🌍 FILTRO MACRO S&P 500 (FIXED V7.6)
+# 🌍 FILTRO MACRO S&P 500
 # ==============================================================
 def check_market_trend() -> bool:
     try:
         spy = yf.Ticker("SPY")
-        # 💡 CORREZIONE V7.6: Scarichiamo esattamente 1 giorno per avere il VWAP intraday reale e pulito
         df_spy = spy.history(period="1d", interval="15m")
-        if df_spy.empty:
+        if df_spy.empty: 
             return True
 
         df_spy.columns = [c.lower() for c in df_spy.columns]
@@ -191,14 +191,14 @@ def check_market_trend() -> bool:
         if df_spy.index.tz is not None:
             df_spy.index = df_spy.index.tz_convert("America/New_York").tz_localize(None)
 
-        if len(df_spy) < 5:
+        if len(df_spy) < 5: 
             return True
 
         spy_vwap  = calculate_vwap_intraday(df_spy).iloc[-1]
         spy_price = df_spy['close'].iloc[-1]
         spy_rsi   = calculate_rsi(df_spy['close']).iloc[-1]
 
-        if pd.isna(spy_vwap) or pd.isna(spy_rsi):
+        if pd.isna(spy_vwap) or pd.isna(spy_rsi): 
             return True
 
         if spy_price < spy_vwap and spy_rsi < CFG.macro_rsi_block:
@@ -213,13 +213,13 @@ def check_market_trend() -> bool:
 
 
 # ==============================================================
-# 🧠 CORE ENGINE V7.6
+# 🧠 CORE ENGINE V7.8
 # ==============================================================
 def analyze_ticker(ticker: str) -> Optional[dict]:
     try:
         stock = yf.Ticker(ticker)
         df = stock.history(period="10d", interval="15m")
-        if df.empty or len(df) < 35:
+        if df.empty or len(df) < 35: 
             return None
 
         df.columns = [c.lower() for c in df.columns]
@@ -227,12 +227,13 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
         if df.index.tz is not None:
             df.index = df.index.tz_convert("America/New_York").tz_localize(None)
 
-        # 💡 CORREZIONE V7.6: Non tagliamo la candela se siamo vicini alla chiusura
-        # per non perdere gli impulsi volumetrici dell'ultimo minuto.
-        if len(df) < 35:
-            return None
-
         price = df['close'].iloc[-1]
+
+        # ── 2. FILTRO PREZZO MINIMO & LIQUIDITÀ ─────────────────────────
+        if price < 5.0:
+            if os.getenv("DEBUG"):
+                print(f"[{ticker}] Scartato: Prezzo sotto $5.00 (${price:.2f})")
+            return None
 
         df['rsi']  = calculate_rsi(df['close'])
         df['atr']  = calculate_atr(df)
@@ -242,7 +243,14 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
         atr  = df['atr'].iloc[-1]
         vwap = df['vwap'].iloc[-1]
 
-        if pd.isna(rsi) or pd.isna(atr) or pd.isna(vwap):
+        if pd.isna(rsi) or pd.isna(atr) or pd.isna(vwap): 
+            return None
+
+        # ── 4. NORMALIZZAZIONE E FILTRO ATR% ───────────────────────────
+        atr_pct = atr / price
+        if atr_pct > 0.05:  
+            if os.getenv("DEBUG"):
+                print(f"[{ticker}] Scartato: Volatilità ATR% eccessiva ({atr_pct*100:.1f}%)")
             return None
 
         # ── PUNTEGGIO IFS ─────────────────────────────────────────────────────
@@ -258,13 +266,15 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
         elif rsi < 50:
             score -= 5
 
+        # ── 1. MUTUA ESCLUSIVITÀ DEL VOL_RATIO (No Double Counting) ─────
         curr_vol  = df['volume'].iloc[-1]
         avg_vol   = df['volume'].tail(20).mean()
         vol_ratio = curr_vol / avg_vol if avg_vol > 0 else 0
-        if vol_ratio > 1.5:
-            score += 2
+        
         if vol_ratio > 2.5:
             score += 4
+        elif vol_ratio > 1.5:
+            score += 2
 
         res_20 = df['high'].rolling(20).max().iloc[-1]
         if price >= res_20:
@@ -306,14 +316,20 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
             "sl":        sl,
             "size":      size,
         }
-    except Exception:
+        
+    # ── 3. DEBUG LOGGING NELLE ECCEZIONI ──────────────────────────────
+    except Exception as e:
+        if os.getenv("DEBUG"):
+            print(f"❌ [{ticker}] Errore critico in analisi: {e}")
         return None
 
 
 # ==============================================================
-# 📡 TELEGRAM & MAIN
+# 📡 TELEGRAM & MAIN (DETERMINISTIC DISTRIBUTION)
 # ==============================================================
 def send_telegram(msg: str) -> None:
+    if "VALORE_TOKEN" in CFG.telegram_token: 
+        return
     try:
         requests.post(
             f"https://api.telegram.org/bot{CFG.telegram_token}/sendMessage",
@@ -340,48 +356,58 @@ def main() -> None:
         send_telegram(warning)
         return
 
-    print(f"🚀 Scanner V7.6 avviato su {len(TICKERS)} titoli...")
-    results: list[dict]           = []
-    sector_counts: dict[str, int] = {}
+    print(f"🚀 Scanner V7.8 avviato su {len(TICKERS)} titoli...")
+    raw_results = []
 
+    # FASE 1: Scansione multi-thread asincrona pura
     with ThreadPoolExecutor(max_workers=CFG.max_threads) as executor:
         futures = {executor.submit(analyze_ticker, t): t for t in TICKERS}
         for future in as_completed(futures):
             res = future.result()
-            if not res:
-                continue
+            if res:
+                raw_results.append(res)
 
-            sector = res["sector"]
-            if sector_counts.get(sector, 0) >= CFG.max_trades_per_sector:
-                continue
+    # FASE 2: Ordinamento per merito reale (Punteggio IFS decrescente)
+    raw_results.sort(key=lambda x: x["ifs"], reverse=True)
 
-            sector_counts[sector] = sector_counts.get(sector, 0) + 1
-            results.append(res)
+    # FASE 3: Assegnazione meritocratica dei tetti per settore
+    sector_counts: dict[str, int] = {}
+    sent_signals = 0
 
-            label = (
-                "💎 INSTITUTIONAL BUY"
-                if res["ifs"] >= CFG.ifs_institutional_threshold
-                else "🔥 SILVER FLOW"
-            )
-            msg = (
-                f"{label}: *{res['ticker']}*\n"
-                f"📊 *IFS:* `{res['ifs']}/12` | *RSI:* `{res['rsi']}`\n"
-                f"📈 *VWAP:* `{res['vwap_pos']}` | *Vol x:* `{res['vol_ratio']}`\n"
-                f"🏭 *Settore:* {sector}\n"
-                f"✅ *ENTRY:* `${res['price']}` | 🎯 *TG:* `${res['tg']}`\n"
-                f"🛑 *SL:* `${res['sl']}` | 🛡️ *SIZE:* `{res['size']} sh`\n"
-                f"━━━━━━━━━━━━━━━━━━"
-            )
-            send_telegram(msg)
-            print(f"✅ ALERT: {res['ticker']} (IFS {res['ifs']})")
+    for res in raw_results:
+        sector = res["sector"]
+        
+        # Se il settore ha già i 2 trade migliori assegnati, skippa l'alert
+        if sector_counts.get(sector, 0) >= CFG.max_trades_per_sector:
+            continue
 
-    if results:
+        sector_counts[sector] = sector_counts.get(sector, 0) + 1
+        sent_signals += 1
+
+        label = (
+            "💎 INSTITUTIONAL BUY"
+            if res["ifs"] >= CFG.ifs_institutional_threshold
+            else "🔥 SILVER FLOW"
+        )
+        msg = (
+            f"{label}: *{res['ticker']}*\n"
+            f"📊 *IFS:* `{res['ifs']}/12` | *RSI:* `{res['rsi']}`\n"
+            f"📈 *VWAP:* `{res['vwap_pos']}` | *Vol x:* `{res['vol_ratio']}`\n"
+            f"🏭 *Settore:* {sector}\n"
+            f"✅ *ENTRY:* `${res['price']}` | 🎯 *TG:* `${res['tg']}`\n"
+            f"🛑 *SL:* `${res['sl']}` | 🛡️ *SIZE:* `{res['size']} sh`\n"
+            f"━━━━━━━━━━━━━━━━━━"
+        )
+        send_telegram(msg)
+        print(f"✅ ALERT INVIATO: {res['ticker']} (IFS {res['ifs']}) per settore {sector}")
+
+    if sent_signals > 0:
         send_telegram(
             f"📋 *Fine Sessione Silver Window*\n"
-            f"Inviati {len(results)} segnali — Scanner V7.6."
+            f"Inviati {sent_signals} segnali qualitativi selezionati per merito — Scanner V7.8."
         )
     else:
-        send_telegram("📋 *Fine Sessione* — Nessun segnale sopra soglia oggi.")
+        send_telegram("📋 *Fine Sessione* — Nessun segnale sopra la soglia minima oggi.")
 
 
 if __name__ == "__main__":
