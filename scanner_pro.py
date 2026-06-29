@@ -2,10 +2,13 @@ import subprocess
 import sys
 import os
 import warnings
+import time
+import logging
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 # ==============================================================
 # 🛠️ AUTO-INSTALLER
@@ -28,7 +31,136 @@ import pytz
 warnings.filterwarnings("ignore")
 
 # ==============================================================
-# 📈 FUNZIONI TECNICHE
+# 🌐 SESSIONE HTTP CONDIVISA CON USER-AGENT
+# ==============================================================
+_YF_SESSION = requests.Session()
+_YF_SESSION.headers.update({
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+})
+
+# ==============================================================
+# ⏸️ GATE DI BACKOFF COOPERATIVO  [V8.5]
+#
+# ARCHITETTURA:
+#   _rate_limit_lock  → sezione critica SOLO per leggere/scrivere lo stato.
+#                       NON viene tenuto durante il sleep (fix V8.5).
+#   _gate_open_event  → tutti i thread worker aspettano qui (non sul lock).
+#   _last_cooldown_time → evita cooldown sovrapposti.
+#
+# FLUSSO CORRETTO:
+#   Thread A rileva 429 → acquisisce lock → chiude gate → rilascia lock
+#                       → dorme FUORI dal lock → riapre gate
+#   Thread B, C         → aspettano su _gate_open_event.wait() senza
+#                         mai contendere il lock con il sleep di A.
+# ==============================================================
+_rate_limit_lock    = threading.Lock()
+_gate_open_event    = threading.Event()
+_gate_open_event.set()          # True = verde, False = cooldown attivo
+_last_cooldown_time: float = 0.0
+
+
+def _wait_if_rate_limited() -> None:
+    """
+    Blocca il thread chiamante finché il gate è chiuso.
+    Il timeout evita deadlock se _gate_open_event non venisse mai riaperto
+    per un bug imprevisto (es. eccezione dentro _signal_rate_limit).
+    """
+    opened = _gate_open_event.wait(timeout=CFG.rate_limit_backoff_sec + 5.0)
+    if not opened:
+        # Timeout di sicurezza: riapre forzatamente e logga l'anomalia
+        _gate_open_event.set()
+        log("⚠️ [GATE] Timeout di sicurezza scattato — gate riaperto forzatamente.", "warning")
+
+
+def _signal_rate_limit() -> None:
+    """
+    Chiude il gate in modo atomico, dorme FUORI dal lock, poi riapre.
+
+    V8.5 FIX: il lock viene acquisito SOLO per la sezione critica
+    (controllo + clear), poi rilasciato PRIMA del time.sleep().
+    Questo evita che tutti i thread si blocchino sul lock invece
+    che sull'event, e previene lo stallo da lock tenuto 10 secondi.
+    """
+    global _last_cooldown_time
+
+    # --- SEZIONE CRITICA (brevissima) ---
+    with _rate_limit_lock:
+        if not _gate_open_event.is_set():
+            return   # un altro thread ha già aperto il cooldown
+        if time.time() - _last_cooldown_time <= 5.0:
+            return   # cooldown terminato meno di 5s fa: skip
+        _gate_open_event.clear()   # chiude il gate — atomico rispetto al lock
+    # --- FINE SEZIONE CRITICA: lock rilasciato ---
+
+    # Sleep FUORI dal lock: altri thread entrano in _signal_rate_limit(),
+    # trovano il gate già chiuso e tornano subito senza contendere.
+    log(f"⏸️ [RATE-LIMIT] Cooldown globale {CFG.rate_limit_backoff_sec}s...", "warning")
+    time.sleep(CFG.rate_limit_backoff_sec)
+
+    _last_cooldown_time = time.time()   # aggiornamento safe: scrittura atomica su float
+    _gate_open_event.set()
+    log("▶️ [RATE-LIMIT] Ripresa dei flussi concorrenti.", "info")
+
+
+# ==============================================================
+# 📝 LOGGING PERSISTENTE
+# ==============================================================
+LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scanner.log")
+
+_logger = logging.getLogger("SilverScanner")
+_logger.setLevel(logging.DEBUG)
+
+_fh = logging.FileHandler(LOG_PATH, encoding="utf-8")
+_fh.setLevel(logging.DEBUG)
+_fh.setFormatter(logging.Formatter(
+    "%(asctime)s | %(levelname)-8s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+))
+
+_ch = logging.StreamHandler(sys.stdout)
+_ch.setLevel(logging.INFO)
+_ch.setFormatter(logging.Formatter("%(message)s"))
+
+_logger.addHandler(_fh)
+_logger.addHandler(_ch)
+
+
+def log(msg: str, level: str = "info") -> None:
+    getattr(_logger, level)(msg)
+
+
+# ==============================================================
+# ⚙️ CONFIGURAZIONE PARAMETRIZZATA
+# ==============================================================
+@dataclass
+class ScannerConfig:
+    telegram_token:              str   = field(default_factory=lambda: os.getenv("TELEGRAM_TOKEN", "VALORE_TOKEN"))
+    telegram_chat_id:            str   = field(default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID", "VALORE_CHAT_ID"))
+    total_equity:                float = 100_000.0
+    risk_per_trade_pct:          float = 0.01
+    max_threads:                 int   = 2
+    min_ifs_threshold:           int   = 8
+    ifs_max:                     int   = 12
+    rr_ratio:                    float = 1.5
+    max_trades_per_sector:       int   = 2
+    ifs_institutional_threshold: int   = 11
+    macro_rsi_block:             float = 45.0
+    window_start_min:            int   = 15 * 60 + 15   # 15:15 NY
+    window_end_min:              int   = 16 * 60         # 16:00 NY
+    telegram_max_retries:        int   = 3
+    telegram_retry_delay_sec:    float = 2.0
+    rate_limit_backoff_sec:      float = 10.0
+    min_df_rows:                 int   = 40
+
+CFG = ScannerConfig()
+
+
+# ==============================================================
+# 📈 FUNZIONI TECNICHE VETTORIZZATE
 # ==============================================================
 def calculate_rsi(series: pd.Series, period: int = 14) -> pd.Series:
     delta = series.diff()
@@ -47,64 +179,35 @@ def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
 
 
 def calculate_vwap_intraday(df: pd.DataFrame) -> pd.Series:
-    df          = df.copy()
-    df['_date'] = df.index.date
-    df['_tp']   = (df['high'] + df['low'] + df['close']) / 3
-
-    vwap_values = pd.Series(index=df.index, dtype=float)
-
-    for _, group in df.groupby('_date'):
-        tp_v   = group['_tp'] * group['volume']
-        cum_tv = tp_v.cumsum()
-        cum_v  = group['volume'].cumsum()
-        vwap_values.loc[group.index] = cum_tv / cum_v.replace(0, np.nan)
-
-    return vwap_values
+    df         = df.copy()
+    df['date'] = df.index.date
+    df['tp']   = (df['high'] + df['low'] + df['close']) / 3
+    df['tp_v'] = df['tp'] * df['volume']
+    cum_tv     = df.groupby('date')['tp_v'].cumsum()
+    cum_v      = df.groupby('date')['volume'].cumsum()
+    return cum_tv / cum_v.replace(0, np.nan)
 
 
 # ==============================================================
 # 🕒 CONTROLLO ORARIO
 # ==============================================================
 def is_silver_window() -> tuple[bool, str]:
-    tz_ny = pytz.timezone("America/New_York")
-    now_ny = datetime.now(tz_ny)
-    
+    tz_ny   = pytz.timezone("America/New_York")
+    now_ny  = datetime.now(tz_ny)
+
     if now_ny.weekday() >= 5:
         return False, "Weekend — Mercato chiuso."
-    
+
     current_min = now_ny.hour * 60 + now_ny.minute
-    window_start = 15 * 60 + 15  # 15:15 NY
-    window_end = 16 * 60         # 16:00 NY
-    
-    if window_start <= current_min <= window_end:
+
+    if CFG.window_start_min <= current_min <= CFG.window_end_min:
         return True, f"✅ SILVER WINDOW ATTIVA (NY: {now_ny.strftime('%H:%M')})"
-        
+
     return False, f"⏳ Standby — NY: {now_ny.strftime('%H:%M')}. Finestra utile: 15:15 - 16:00 NY."
 
 
 # ==============================================================
-# ⚙️ CONFIGURAZIONE
-# ==============================================================
-@dataclass
-class ScannerConfig:
-    # Configura le tue credenziali come variabili d'ambiente o sostituiscile qui in locale
-    telegram_token:              str   = field(default_factory=lambda: os.getenv("TELEGRAM_TOKEN", "VALORE_TOKEN"))
-    telegram_chat_id:            str   = field(default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID", "VALORE_CHAT_ID"))
-    total_equity:                float = 100_000.0
-    risk_per_trade_pct:          float = 0.01
-    max_threads:                 int   = 20
-    min_ifs_threshold:           int   = 8
-    ifs_max:                     int   = 12
-    rr_ratio:                    float = 1.5
-    max_trades_per_sector:       int   = 2
-    ifs_institutional_threshold: int   = 11
-    macro_rsi_block:             float = 45.0
-
-CFG = ScannerConfig()
-
-
-# ==============================================================
-# 📋 WATCHLIST COMPLETISSIMA (242 Tickers)
+# 📋 WATCHLIST (242 Tickers)
 # ==============================================================
 SECTOR_MAP = {
     "AAPL": "Tech",  "MSFT": "Tech",  "GOOGL": "Tech",  "META": "Tech",
@@ -168,7 +271,7 @@ SECTOR_MAP = {
     "NSC":  "Transport","CP":  "Transport","CNI": "Transport",
     "DAL":  "Airlines", "UAL": "Airlines", "AAL": "Airlines",
     "MSTR": "Crypto",   "MARA":"Crypto",   "RIOT":"Crypto",  "CLSK":"Crypto",
-    "RIVN": "EV",       "LCID":"EV",       "CHPT":"EV",      "QS":  "EV",
+    "RIVN": "EV",       "LCID":"EV",       "CHPT":"EV",       "QS":  "EV",
     "PLUG": "CleanEnergy","RUN":"CleanEnergy","SEDG":"CleanEnergy",
     "ENPH": "CleanEnergy","BLNK":"CleanEnergy","RBLX":"Gaming",
     "DKNG": "Gaming",   "RKLB":"Aerospace","OPEN":"Tech",     "IONQ":"Tech",
@@ -177,13 +280,32 @@ TICKERS = list(SECTOR_MAP.keys())
 
 
 # ==============================================================
+# 🔍 PROBE RATE-LIMIT  [V8.5]
+# Sostituisce il controllo su history_metadata (instabile tra versioni).
+# Usa una chiamata minima (1 giorno, 1h) su un ticker noto e liquido.
+# Se anche questa torna vuota, il sistema è sotto rate-limit globale.
+# ==============================================================
+def _probe_rate_limit_via_spy() -> bool:
+    """
+    Torna True se Yahoo Finance sta bloccando le richieste (rate-limit globale).
+    Usa SPY come ticker sentinella — quasi impossibile che sia genuinamente vuoto.
+    """
+    try:
+        probe = yf.Ticker("SPY", session=_YF_SESSION).history(period="1d", interval="1h")
+        return probe.empty
+    except Exception:
+        return False   # errore generico: non assumiamo rate-limit
+
+
+# ==============================================================
 # 🌍 FILTRO MACRO S&P 500
 # ==============================================================
 def check_market_trend() -> bool:
     try:
-        spy = yf.Ticker("SPY")
+        spy    = yf.Ticker("SPY", session=_YF_SESSION)
         df_spy = spy.history(period="1d", interval="15m")
-        if df_spy.empty: 
+
+        if df_spy.empty:
             return True
 
         df_spy.columns = [c.lower() for c in df_spy.columns]
@@ -191,35 +313,50 @@ def check_market_trend() -> bool:
         if df_spy.index.tz is not None:
             df_spy.index = df_spy.index.tz_convert("America/New_York").tz_localize(None)
 
-        if len(df_spy) < 5: 
+        if len(df_spy) < 5:
             return True
 
         spy_vwap  = calculate_vwap_intraday(df_spy).iloc[-1]
         spy_price = df_spy['close'].iloc[-1]
         spy_rsi   = calculate_rsi(df_spy['close']).iloc[-1]
 
-        if pd.isna(spy_vwap) or pd.isna(spy_rsi): 
+        if pd.isna(spy_vwap) or pd.isna(spy_rsi):
             return True
 
         if spy_price < spy_vwap and spy_rsi < CFG.macro_rsi_block:
-            print(f"⚠️ MACRO ALERT — SPY sotto VWAP (${spy_price:.2f} < ${spy_vwap:.2f}) e RSI={spy_rsi:.1f}. Scanner inibito.")
+            log(
+                f"⚠️ MACRO ALERT — SPY sotto VWAP (${spy_price:.2f} < ${spy_vwap:.2f}) "
+                f"e RSI={spy_rsi:.1f}. Scanner inibito.",
+                "warning"
+            )
             return False
 
-        print(f"✅ Macro OK — SPY: ${spy_price:.2f} | VWAP: ${spy_vwap:.2f} | RSI: {spy_rsi:.1f}")
+        log(f"✅ Macro OK — SPY: ${spy_price:.2f} | VWAP: ${spy_vwap:.2f} | RSI: {spy_rsi:.1f}")
         return True
 
-    except Exception:
+    except Exception as e:
+        log(f"⚠️ check_market_trend fallito: {e}", "warning")
         return True
 
 
 # ==============================================================
-# 🧠 CORE ENGINE V7.8
+# 🧠 CORE ENGINE V8.5
 # ==============================================================
 def analyze_ticker(ticker: str) -> Optional[dict]:
     try:
-        stock = yf.Ticker(ticker)
-        df = stock.history(period="10d", interval="15m")
-        if df.empty or len(df) < 35: 
+        _wait_if_rate_limited()
+
+        stock = yf.Ticker(ticker, session=_YF_SESSION)
+        df    = stock.history(period="10d", interval="15m")
+
+        if df.empty:
+            # V8.5: probe stabile su SPY invece di history_metadata (non documentato)
+            if _probe_rate_limit_via_spy():
+                log(f"⚠️ [PROBE] DF vuoto per {ticker} confermato da SPY — segnalo rate-limit.", "warning")
+                _signal_rate_limit()
+            return None
+
+        if len(df) < CFG.min_df_rows:
             return None
 
         df.columns = [c.lower() for c in df.columns]
@@ -229,10 +366,7 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
 
         price = df['close'].iloc[-1]
 
-        # ── 2. FILTRO PREZZO MINIMO & LIQUIDITÀ ─────────────────────────
         if price < 5.0:
-            if os.getenv("DEBUG"):
-                print(f"[{ticker}] Scartato: Prezzo sotto $5.00 (${price:.2f})")
             return None
 
         df['rsi']  = calculate_rsi(df['close'])
@@ -243,17 +377,14 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
         atr  = df['atr'].iloc[-1]
         vwap = df['vwap'].iloc[-1]
 
-        if pd.isna(rsi) or pd.isna(atr) or pd.isna(vwap): 
+        if pd.isna(rsi) or pd.isna(atr) or pd.isna(vwap):
             return None
 
-        # ── 4. NORMALIZZAZIONE E FILTRO ATR% ───────────────────────────
         atr_pct = atr / price
-        if atr_pct > 0.05:  
-            if os.getenv("DEBUG"):
-                print(f"[{ticker}] Scartato: Volatilità ATR% eccessiva ({atr_pct*100:.1f}%)")
+        if atr_pct > 0.05:
             return None
 
-        # ── PUNTEGGIO IFS ─────────────────────────────────────────────────────
+        # ── CALCOLO PUNTEGGIO IFS ─────────────────────────────────────────────
         score = 0
 
         if price > vwap:
@@ -266,11 +397,10 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
         elif rsi < 50:
             score -= 5
 
-        # ── 1. MUTUA ESCLUSIVITÀ DEL VOL_RATIO (No Double Counting) ─────
-        curr_vol  = df['volume'].iloc[-1]
-        avg_vol   = df['volume'].tail(20).mean()
+        curr_vol  = df['volume'].iloc[-2]
+        avg_vol   = df['volume'].iloc[-21:-1].mean()
         vol_ratio = curr_vol / avg_vol if avg_vol > 0 else 0
-        
+
         if vol_ratio > 2.5:
             score += 4
         elif vol_ratio > 1.5:
@@ -294,6 +424,7 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
 
         score -= trap_penalty
         score  = min(score, CFG.ifs_max)
+        score  = max(score, 0)
 
         if score < CFG.min_ifs_threshold:
             return None
@@ -304,81 +435,121 @@ def analyze_ticker(ticker: str) -> Optional[dict]:
         risk_amount = CFG.total_equity * CFG.risk_per_trade_pct
         size        = int(risk_amount / (price - sl)) if (price - sl) > 0 else 0
 
-        return {
+        result = {
             "ticker":    ticker,
             "price":     round(price, 2),
             "ifs":       score,
             "rsi":       round(rsi, 1),
-            "vwap_pos": "SOPRA" if price > vwap else "SOTTO",
+            "vwap_pos":  "SOPRA" if price > vwap else "SOTTO",
             "vol_ratio": round(vol_ratio, 2),
             "sector":    SECTOR_MAP.get(ticker, "Other"),
             "tg":        tg,
             "sl":        sl,
             "size":      size,
         }
-        
-    # ── 3. DEBUG LOGGING NELLE ECCEZIONI ──────────────────────────────
+
+        log(
+            f"[SIGNAL] {ticker} | IFS={score} | RSI={rsi:.1f} | "
+            f"Price={price:.2f} | VWAP={'>' if price > vwap else '<'} | "
+            f"Vol×={vol_ratio:.2f} | SL={sl} | TG={tg} | Size={size}",
+            "debug"
+        )
+        return result
+
     except Exception as e:
-        if os.getenv("DEBUG"):
-            print(f"❌ [{ticker}] Errore critico in analisi: {e}")
+        err_str = str(e)
+        if "429" in err_str or "Too Many" in err_str or "rate limit" in err_str.lower():
+            _signal_rate_limit()
+        else:
+            log(f"❌ [CONN_ERROR] {ticker}: {e}", "error")
         return None
 
 
 # ==============================================================
-# 📡 TELEGRAM & MAIN (DETERMINISTIC DISTRIBUTION)
+# 📡 TELEGRAM CON RETRY
 # ==============================================================
-def send_telegram(msg: str) -> None:
-    if "VALORE_TOKEN" in CFG.telegram_token: 
-        return
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{CFG.telegram_token}/sendMessage",
-            data={"chat_id": CFG.telegram_chat_id, "text": msg, "parse_mode": "Markdown"},
-            timeout=5,
-        )
-    except Exception:
-        pass
+def send_telegram(msg: str) -> bool:
+    if "VALORE_TOKEN" in CFG.telegram_token:
+        return False
+
+    url = f"https://api.telegram.org/bot{CFG.telegram_token}/sendMessage"
+
+    for attempt in range(1, CFG.telegram_max_retries + 1):
+        try:
+            resp = requests.post(
+                url,
+                data={"chat_id": CFG.telegram_chat_id, "text": msg, "parse_mode": "Markdown"},
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                return True
+            log(
+                f"⚠️ Telegram HTTP {resp.status_code} "
+                f"(tentativo {attempt}/{CFG.telegram_max_retries}): {resp.text[:120]}",
+                "warning"
+            )
+        except requests.exceptions.RequestException as e:
+            log(
+                f"⚠️ Telegram timeout/conn error "
+                f"(tentativo {attempt}/{CFG.telegram_max_retries}): {e}",
+                "warning"
+            )
+
+        if attempt < CFG.telegram_max_retries:
+            time.sleep(CFG.telegram_retry_delay_sec * attempt)   # backoff lineare: 2s, 4s
+
+    log("❌ Telegram: invio fallito dopo tutti i tentativi.", "error")
+    return False
 
 
+# ==============================================================
+# 🚀 MAIN
+# ==============================================================
 def main() -> None:
+    log("=" * 60)
+    log(f"🚀 Silver Scanner V8.5 — avvio {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    log(f"📄 Log persistente: {LOG_PATH}", "debug")
+
     active, status_msg = is_silver_window()
-    print(status_msg)
+    log(status_msg)
     if not active:
+        log("Fine — fuori finestra operativa.")
         return
 
-    print("🔍 Analisi trend macro S&P 500 (SPY)...")
+    log("🔍 Analisi trend macro S&P 500 (SPY)...")
     if not check_market_trend():
-        warning = (
+        send_telegram(
             "⚠️ *SCANNER SOSPESO*\n"
             "SPY sotto VWAP con RSI debole.\n"
             "Operatività Long congelata — rischio Bull Trap di mercato."
         )
-        send_telegram(warning)
         return
 
-    print(f"🚀 Scanner V7.8 avviato su {len(TICKERS)} titoli...")
-    raw_results = []
+    log(f"🔎 Scansione su {len(TICKERS)} titoli (thread={CFG.max_threads})...")
+    raw_results: list[dict] = []
+    scanned = 0
 
-    # FASE 1: Scansione multi-thread asincrona pura
     with ThreadPoolExecutor(max_workers=CFG.max_threads) as executor:
         futures = {executor.submit(analyze_ticker, t): t for t in TICKERS}
         for future in as_completed(futures):
+            scanned += 1
             res = future.result()
             if res:
                 raw_results.append(res)
 
-    # FASE 2: Ordinamento per merito reale (Punteggio IFS decrescente)
+    log(f"✅ Scansione completata: {scanned}/{len(TICKERS)} analizzati, {len(raw_results)} segnali sopra soglia.")
+
     raw_results.sort(key=lambda x: x["ifs"], reverse=True)
 
-    # FASE 3: Assegnazione meritocratica dei tetti per settore
     sector_counts: dict[str, int] = {}
-    sent_signals = 0
+    sent_signals  = 0
+    failed_sends  = 0
 
     for res in raw_results:
         sector = res["sector"]
-        
-        # Se il settore ha già i 2 trade migliori assegnati, skippa l'alert
+
         if sector_counts.get(sector, 0) >= CFG.max_trades_per_sector:
+            log(f"[SKIP] {res['ticker']} — settore {sector} già a quota ({CFG.max_trades_per_sector})", "debug")
             continue
 
         sector_counts[sector] = sector_counts.get(sector, 0) + 1
@@ -398,16 +569,21 @@ def main() -> None:
             f"🛑 *SL:* `${res['sl']}` | 🛡️ *SIZE:* `{res['size']} sh`\n"
             f"━━━━━━━━━━━━━━━━━━"
         )
-        send_telegram(msg)
-        print(f"✅ ALERT INVIATO: {res['ticker']} (IFS {res['ifs']}) per settore {sector}")
+        ok = send_telegram(msg)
+        if ok:
+            log(f"✅ ALERT INVIATO: {res['ticker']} (IFS {res['ifs']}) — {sector}")
+        else:
+            failed_sends += 1
+            log(f"❌ ALERT NON INVIATO: {res['ticker']} (IFS {res['ifs']}) — {sector}", "error")
 
-    if sent_signals > 0:
-        send_telegram(
-            f"📋 *Fine Sessione Silver Window*\n"
-            f"Inviati {sent_signals} segnali qualitativi selezionati per merito — Scanner V7.8."
-        )
-    else:
-        send_telegram("📋 *Fine Sessione* — Nessun segnale sopra la soglia minima oggi.")
+    summary = (
+        f"📋 *Fine Sessione Silver Window*\n"
+        f"Inviati {sent_signals - failed_sends}/{sent_signals} segnali — Scanner V8.5."
+    ) if sent_signals > 0 else "📋 *Fine Sessione* — Nessun segnale sopra la soglia minima oggi."
+
+    send_telegram(summary)
+    log(f"📋 Sessione conclusa — segnali: {sent_signals}, invii falliti: {failed_sends}")
+    log("=" * 60)
 
 
 if __name__ == "__main__":
